@@ -170,6 +170,7 @@ select {
 
 .leaflet-container { font: inherit; }
 .leaflet-control-attribution { font-size: 10px; }
+.tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
 
 /* ---- phone ---- */
 @media (max-width: 760px) {
@@ -256,9 +257,10 @@ select {
   var dt = document.documentElement.getAttribute("data-theme");
   if (dt) dark = dt === "dark";
   var map = L.map("map", { zoomControl: true, preferCanvas: true }).setView([42.38, -83.1], 12);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/" + (dark ? "dark_all" : "rastertiles/voyager") + "/{z}/{x}/{y}{r}.png", {
-    maxZoom: 19, subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  // OpenStreetMap's own tiles need no account or key; in dark mode they are dimmed with a CSS filter
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, className: dark ? "tiles-dark" : "",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
   L.control.scale({ imperial: true, metric: false }).addTo(map);
   var heat = null, dots = L.layerGroup().addTo(map);
