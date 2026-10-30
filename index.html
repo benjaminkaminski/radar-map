@@ -869,8 +869,10 @@ body.show .leaflet-control-zoom { display: none; }
           (a.peak ? '<button class="optbtn" id="peakBtn" aria-pressed="' + (state.peakFor === a.id) + '">◎ Show where the signal peaked</button>' +
             (state.peakFor === a.id ? '<p class="note">Strongest reading (' + a.peak[2] + ' bars) was ' + feetText(metres(a.lat, a.lon, a.peak[0], a.peak[1])) +
               ' from where the alert started. The radar was most likely near the ◎.</p>' : "") : "") + "</div>" : "") +
-        (a.isFalse && a.near ? '<div class="sig"><p class="secttl">Probably set off by</p><b>' + esc(a.near) + '</b><p class="note">' +
-          (a.near_m != null ? feetText(a.near_m) + " away. " : "") + 'Automatic doors at stores are a common source of false K alerts.</p></div>' : "") +
+        (a.isFalse && a.near ? (/^near /.test(a.near)
+          ? '<div class="sig"><p class="secttl">No store found right here</p><b>' + esc(a.near.replace(/^near /, "On ")) + '</b><p class="note">Other K sources: traffic sensors, other cars\' detectors, bank and store doors further away.</p></div>'
+          : '<div class="sig"><p class="secttl">Probably set off by</p><b>' + esc(a.near) + '</b><p class="note">' +
+          (a.near_m != null && a.near_m > 30 ? feetText(a.near_m) + " away. " : "") + 'Automatic doors at stores are a common source of false K alerts.</p></div>') : "") +
         (!a.isFalse && crashes ? (function () {
           var c = crashNear(a.lat, a.lon, 300);
           return '<div class="sig"><p class="secttl">Crashes within 1,000 ft (' + esc(crashes.years.join("–")) + ')</p><b>' + c.n + " crash" + (c.n === 1 ? "" : "es") +
@@ -1060,7 +1062,7 @@ body.show .leaflet-control-zoom { display: none; }
       panel("c-wd", "Alerts by day of the week", "Stacked by band", svgBars(wds, {})) +
       panel("c-filter", "What the filters removed", "All logged alerts, every band", svgDonut(filt)) +
       (function () {
-        var src = {}; all.forEach(function (a) { if (a.isFalse && a.near) src[a.near] = (src[a.near] || 0) + 1; });
+        var src = {}; all.forEach(function (a) { if (a.isFalse && a.near && !/^near /.test(a.near)) src[a.near] = (src[a.near] || 0) + 1; });
         var items = Object.keys(src).map(function (k) { return { label: k.split(",")[0].slice(0, 22), v: src[k], color: COLORS["false"] }; })
           .sort(function (a, b) { return b.v - a.v; }).slice(0, 8);
         return items.length ? panel("c-src", "Where false K alerts came from", "Nearest business to each false alert (OpenStreetMap)", svgHBars(items, 210)) : "";
