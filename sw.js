@@ -1,10 +1,10 @@
 // Lets the website install as an app (Windows, phone) and open without internet.
 // Always tries the internet first, so new drives show up; falls back to the last copy saved here.
-const CACHE = "radar-map-v1";
+const CACHE = "radar-map-v2";
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(["./", "index.html", "vendor/leaflet.js", "vendor/leaflet-heat.js",
-    "vendor/leaflet.css", "manifest.webmanifest", "icon-192.png"])).then(() => self.skipWaiting()));
+    "vendor/leaflet.css", "vendor/qrcode.js", "manifest.webmanifest", "icon-192.png"])).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))

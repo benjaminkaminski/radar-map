@@ -7,6 +7,15 @@
 <meta name="description" content="Where a Uniden R7 radar detector picked up radar around Detroit, logged by a Raspberry Pi with GPS. Slow down in the hot spots.">
 <meta name="theme-color" content="#0B0E10">
 <link rel="manifest" href="manifest.webmanifest">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Radar Alert Mapper">
+<meta property="og:description" content="Where radar is used around Detroit, logged live by a Raspberry Pi reading a radar detector. Slow down in the hot spots.">
+<meta property="og:url" content="https://benjaminkaminski.github.io/radar-map/">
+<meta property="og:image" content="https://benjaminkaminski.github.io/radar-map/preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://benjaminkaminski.github.io/radar-map/preview.png">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -242,6 +251,46 @@ select { border: 1px solid var(--line); background: var(--panel-2); border-radiu
 .drive footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
 .drive .btn { font-size: 14px; padding: 10px 14px 9px; }
 
+/* one-page report: a white sheet that prints on letter paper */
+.reportbar { display: flex; gap: 8px; justify-content: center; padding: 16px; flex-wrap: wrap; }
+.sheet { --s-ink: #14181B; --s-muted: #5A666D; --s-line: #D5DBDF;
+  width: min(100%, 8.5in); margin: 0 auto 30px; background: #fff; color: var(--s-ink); padding: 0.45in 0.5in;
+  font: 11pt/1.4 var(--body); box-shadow: 0 10px 40px rgba(0,0,0,.5); color-scheme: light; }
+.sheet h1 { font: 800 28pt/1 var(--display); letter-spacing: .04em; text-transform: uppercase; margin: 0; }
+.sheet h1 span { color: #D98A00; }
+.sheet h2 { font: 700 12pt/1.2 var(--display); letter-spacing: .1em; text-transform: uppercase; margin: 0 0 6px; color: var(--s-ink); }
+.sheet .sub { color: var(--s-muted); margin: 4px 0 0; }
+.sheet .head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border-bottom: 3px solid #D98A00; padding-bottom: 10px; }
+.sheet .qr { text-align: center; font-size: 8pt; color: var(--s-muted); flex: none; }
+.sheet .qr svg { width: 1.05in; height: 1.05in; display: block; margin: 0 auto 2px; }
+.sheet .nums { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 12px 0; }
+.sheet .nums div { border: 1px solid var(--s-line); border-radius: 8px; padding: 6px 8px; }
+.sheet .nums b { display: block; font: 20pt/1.1 var(--digital); }
+.sheet .nums span { font: 600 7.5pt/1.2 var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--s-muted); }
+#rmap { height: 3.1in; border-radius: 8px; border: 1px solid var(--s-line); background: #eef1f3; }
+.sheet .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+.sheet table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+.sheet td, .sheet th { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--s-line); }
+.sheet th { font: 600 7.5pt var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--s-muted); }
+.sheet ol { margin: 0; padding-left: 18px; font-size: 9.5pt; }
+.sheet .charts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+.sheet .charts2 svg { width: 100%; height: auto; }
+.sheet .foot2 { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--s-line); font-size: 8.5pt; color: var(--s-muted); }
+.sheet .safety { font-size: 9.5pt; margin: 6px 0 0; }
+@media (max-width: 860px) { .sheet { padding: 18px; font-size: 10pt; } .sheet .nums { grid-template-columns: repeat(3, 1fr); } .sheet .cols, .sheet .charts2 { grid-template-columns: 1fr; } }
+@page { size: letter; margin: 0.35in; }
+@media print {
+  body { display: block; background: #fff; height: auto; }
+  .rail, .reportbar, #v-map, #v-stats, #v-photos, #v-about, .drive { display: none !important; }
+  .stage, .view { position: static !important; height: auto !important; overflow: visible !important; }
+  .sheet { box-shadow: none; width: auto; margin: 0; padding: 0; font-size: 10pt; }
+  .sheet .nums { grid-template-columns: repeat(6, 1fr) !important; margin: 8px 0; }
+  .sheet .cols, .sheet .charts2 { grid-template-columns: 1fr 1fr !important; }
+  .sheet .charts2 svg { max-height: 2in; }
+  #rmap { height: 2.7in; }
+  .sheet, .sheet * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
 /* symposium mode */
 body.show { grid-template-columns: 1fr; }
 body.show .rail { display: none; }
@@ -315,6 +364,7 @@ body.show .leaflet-control-zoom { display: none; }
       <button class="chip" data-layer="spots" aria-pressed="true">Spots</button>
       <button class="chip" data-layer="cones" aria-pressed="true">Radar direction</button>
       <button class="chip" data-layer="path" aria-pressed="true" id="bPath" hidden>Drive path</button>
+      <button class="chip" data-layer="crashes" aria-pressed="false" id="bCrash" hidden><span class="dot" style="background:#B07CFF"></span>Crashes</button>
     </div>
     <div class="row">
       <span class="cap">Drive day · light</span>
@@ -332,6 +382,7 @@ body.show .leaflet-control-zoom { display: none; }
       <button class="btn" id="replayBtn">▶ Replay drive</button>
       <button class="btn" id="lapseBtn">⏵ Timelapse</button>
       <button class="btn" id="showBtn">⛶ Symposium mode</button>
+      <button class="btn" id="reportBtn">🖨 One-page report</button>
       <button class="btn" id="csvBtn">⤓ Download data</button>
       <button class="btn" id="installBtn" hidden>⊕ Install app</button>
     </div>
@@ -377,6 +428,10 @@ body.show .leaflet-control-zoom { display: none; }
         Each one saves as a picture for a poster or slides.</p>
       <div class="sect"><h3>This week</h3><span id="weekSpan"></span></div>
       <div class="tiles" id="week"></div>
+      <div class="sect"><h3>Per 100 miles driven</h3><span id="mileSpan"></span></div>
+      <div class="tiles" id="miles"></div>
+      <div class="sect"><h3>Radar and crashes</h3><span id="crashSpan"></span></div>
+      <div class="tiles" id="safety"></div>
       <div class="sect"><h3>Pi status</h3><span id="piSpan"></span></div>
       <div class="tiles" id="pi"></div>
       <div class="sect"><h3>Charts</h3></div>
@@ -390,6 +445,11 @@ body.show .leaflet-control-zoom { display: none; }
       <p class="lead">The camera takes a photo of the detector's screen at every alert. The left box (my speed) is blacked out before it goes online. Tap a photo to see where it happened.</p>
       <div class="wall" id="wall"></div>
     </div>
+  </section>
+
+  <section class="view" id="v-report" hidden>
+    <div class="reportbar"><button class="btn go" id="printBtn">🖨 Print or save as PDF</button><a class="btn" href="#map" style="text-decoration:none">✕ Back to map</a></div>
+    <article class="sheet" id="sheet"></article>
   </section>
 
   <section class="view" id="v-about" hidden>
@@ -419,6 +479,7 @@ body.show .leaflet-control-zoom { display: none; }
             <li><b>Confirmed:</b> a spot seen on two or more different drives.</li>
             <li><b>Signal peak:</b> tap an alert, then "Show where the signal peaked". The strongest reading is about where the radar was.</li>
             <li><b>Same radar again:</b> the same exact frequency seen again in the same place is probably the same radar unit.</li>
+            <li><b>Crashes (purple squares):</b> City of Detroit crash reports for the last two years, from Detroit's open data. Darker = more crashes.</li>
             <li><b>Heads-up mode:</b> open the site on your phone before driving. It uses your GPS and says "slow-down zone ahead" out loud.</li>
           </ul>
         </div>
@@ -448,6 +509,7 @@ body.show .leaflet-control-zoom { display: none; }
 
 <script src="vendor/leaflet.js"></script>
 <script src="vendor/leaflet-heat.js"></script>
+<script src="vendor/qrcode.js"></script>
 <script>
 (function () {
   "use strict";
@@ -455,7 +517,7 @@ body.show .leaflet-control-zoom { display: none; }
   var COLORS = { Ka: "#FF4D3D", K: "#FFB020", X: "#5AA2E0", false: "#6E7A80", needle: "#4FD1DE", muted: "#8C989F", line: "#262E33", ink: "#E8ECEE", panel: "#13181B" };
   var HEADING_DEG = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
   var ARROW_TEXT = { ahead: "Ahead of me", behind: "Behind me", side: "To my side" };
-  var state = { band: "all", day: "all", light: "all", layers: { heat: true, spots: true, cones: true, path: true },
+  var state = { band: "all", day: "all", light: "all", layers: { heat: true, spots: true, cones: true, path: true, crashes: false },
                 showFalse: false, confirmedOnly: false, list: "zones", selected: null, view: "map", replayUntil: null, peakFor: null };
 
   // ---------- helpers ----------
@@ -518,7 +580,39 @@ body.show .leaflet-control-zoom { display: none; }
   }
 
   // ---------- data ----------
-  var all = [], tracks = [], zones = [], health = null;
+  var all = [], tracks = [], trackStart = [], zones = [], health = null, crashes = null;
+  var SITE = "https://benjaminkaminski.github.io/radar-map/";
+
+  // ---------- crashes near a spot (City of Detroit open data, grouped by the Pi into ~250 m squares) ----------
+  function crashNear(lat, lon, r) {
+    var out = { n: 0, serious: 0, speeding: 0 };
+    if (!crashes) return out;
+    crashes.cells.forEach(function (c) {
+      if (Math.abs(c[0] - lat) > 0.006 || Math.abs(c[1] - lon) > 0.008) return;
+      if (metres(lat, lon, c[0], c[1]) <= (r || 300)) { out.n += c[2]; out.serious += c[3]; out.speeding += c[4]; }
+    });
+    return out;
+  }
+  var crashHot = Infinity;                                   // crashes in a square to count as a hot spot (top 10%)
+  function crashLevels() {
+    var counts = crashes.cells.map(function (c) { return c[2]; }).sort(function (a, b) { return a - b; });
+    crashHot = counts[Math.floor(counts.length * 0.9)] || Infinity;
+  }
+
+  // ---------- miles driven, from the drive path ----------
+  function lineMiles(line) {
+    var m = 0; for (var i = 1; i < line.length; i++) m += metres(line[i - 1][0], line[i - 1][1], line[i][0], line[i][1]);
+    return m / 1609.34;
+  }
+  function milesByDay() {
+    var out = {};
+    tracks.forEach(function (line, i) {
+      var t = trackStart[i]; if (!t) return;
+      var k = fmtKey.format(new Date(t.replace(" ", "T") + "Z"));
+      out[k] = (out[k] || 0) + lineMiles(line);
+    });
+    return out;
+  }
   function prep(raw) {
     return raw.map(function (a, i) {
       var d = new Date(a.t.replace(" ", "T") + "Z");
@@ -637,6 +731,14 @@ body.show .leaflet-control-zoom { display: none; }
     spotLayer.clearLayers(); coneLayer.clearLayers(); pathLayer.clearLayers(); ringLayer.clearLayers();
     if (state.layers.path && tracks.length && state.replayUntil == null) {
       tracks.forEach(function (line) { L.polyline(line, { color: COLORS.needle, weight: 2.5, opacity: 0.45, interactive: false }).addTo(pathLayer); });
+    }
+    if (state.layers.crashes && crashes) {
+      var dLat = 0.00225 / 2, dLon = 0.003 / 2;
+      crashes.cells.forEach(function (c) {
+        var f = Math.min(1, c[2] / (crashHot * 1.5));
+        L.rectangle([[c[0] - dLat, c[1] - dLon], [c[0] + dLat, c[1] + dLon]], { stroke: false, fillColor: "#B07CFF", fillOpacity: 0.08 + 0.5 * f })
+          .bindTooltip(c[2] + " crashes · " + c[3] + " serious · " + c[4] + " speeding", { sticky: true }).addTo(pathLayer);
+      });
     }
     if (state.layers.heat && real.length) {
       heat = L.heatLayer(real.map(function (a) { return [a.lat, a.lon, 1]; }), {
@@ -767,6 +869,13 @@ body.show .leaflet-control-zoom { display: none; }
           (a.peak ? '<button class="optbtn" id="peakBtn" aria-pressed="' + (state.peakFor === a.id) + '">◎ Show where the signal peaked</button>' +
             (state.peakFor === a.id ? '<p class="note">Strongest reading (' + a.peak[2] + ' bars) was ' + feetText(metres(a.lat, a.lon, a.peak[0], a.peak[1])) +
               ' from where the alert started. The radar was most likely near the ◎.</p>' : "") : "") + "</div>" : "") +
+        (a.isFalse && a.near ? '<div class="sig"><p class="secttl">Probably set off by</p><b>' + esc(a.near) + '</b><p class="note">' +
+          (a.near_m != null ? feetText(a.near_m) + " away. " : "") + 'Automatic doors at stores are a common source of false K alerts.</p></div>' : "") +
+        (!a.isFalse && crashes ? (function () {
+          var c = crashNear(a.lat, a.lon, 300);
+          return '<div class="sig"><p class="secttl">Crashes within 1,000 ft (' + esc(crashes.years.join("–")) + ')</p><b>' + c.n + " crash" + (c.n === 1 ? "" : "es") +
+            '</b><p class="note">' + c.serious + " with serious or fatal injuries, " + c.speeding + " involved speeding. City of Detroit open data.</p></div>";
+        })() : "") +
         (a.twins && a.twins.length ? '<div class="sig"><p class="secttl">Same radar again · seen ' + (a.twins.length + 1) + ' times</p>' +
           '<ul class="twins">' + a.twins.map(function (b) {
             return '<li><button data-twin="' + b.id + '"><span>' + esc(b.dayLabel) + " · " + esc(b.time) + '</span><b>' + esc(b.freq) + "</b></button></li>";
@@ -814,8 +923,8 @@ body.show .leaflet-control-zoom { display: none; }
     if (opts.xlabel) s += '<text x="' + ((W + padL) / 2) + '" y="' + (H - 2) + '" text-anchor="middle" font-size="14" fill="' + COLORS.muted + '">' + esc(opts.xlabel) + '</text>';
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-family="Saira, sans-serif">' + s + '</svg>';
   }
-  function svgHBars(items) {
-    var W = 640, rowH = 34, H = Math.max(60, items.length * rowH + 16), padL = 104, padR = 40, s = "";
+  function svgHBars(items, labelW) {
+    var W = 640, rowH = 34, H = Math.max(60, items.length * rowH + 16), padL = labelW || 104, padR = 40, s = "";
     var max = Math.max(1, Math.max.apply(null, items.map(function (it) { return it.v; })));
     items.forEach(function (it, i) {
       var y = 8 + i * rowH, w = (W - padL - padR) * it.v / max;
@@ -891,8 +1000,43 @@ body.show .leaflet-control-zoom { display: none; }
         t == null ? "" : t >= 80 ? "bad" : t >= 70 ? "warn" : "ok") +
       tile("Storage free", disk + " GB", health.disk_used_pct + "% of the card used", health.disk_used_pct >= 90 ? "bad" : health.disk_used_pct >= 75 ? "warn" : "ok");
   }
+  function drawMiles() {
+    var by = milesByDay(), days = Object.keys(by).filter(function (k) { return by[k] >= 0.5; }).sort();
+    if (!days.length) {
+      $("mileSpan").textContent = "";
+      $("miles").innerHTML = '<p class="empty" style="padding:0">Starts with your next drive: the Pi now saves the roads driven, so it can count miles.</p>';
+      return;
+    }
+    var real = all.filter(function (a) { return !a.isFalse && by[a.dayKey] >= 0.5; });
+    var mi = days.reduce(function (s, k) { return s + by[k]; }, 0);
+    function per(n) { return (n / mi * 100).toFixed(1); }
+    function band(b) { return real.filter(function (a) { return a.band === b; }).length; }
+    $("mileSpan").textContent = "Only drives with the drive path saved";
+    $("miles").innerHTML = tile("Miles logged", mi.toFixed(1), days.length + " drive" + (days.length > 1 ? "s" : "")) +
+      tile("Real alerts", per(real.length), "per 100 miles (" + real.length + " total)") +
+      tile("Ka", per(band("Ka")), "per 100 miles") + tile("K", per(band("K")), "per 100 miles") +
+      tile("Best drive", (function () {
+        var best = days.map(function (k) { return { k: k, r: real.filter(function (a) { return a.dayKey === k; }).length / by[k] * 100 }; })
+          .sort(function (x, y) { return y.r - x.r; })[0];
+        return best.r.toFixed(1);
+      })(), "most alerts per 100 miles in one drive");
+  }
+  function drawSafety() {
+    if (!crashes) { $("crashSpan").textContent = ""; $("safety").innerHTML = '<p class="empty" style="padding:0">Crash data comes from the Pi on its next upload.</p>'; return; }
+    var real = all.filter(function (a) { return !a.isFalse; });
+    var nearHot = real.filter(function (a) {
+      return crashes.cells.some(function (c) { return c[2] >= crashHot && metres(a.lat, a.lon, c[0], c[1]) <= 300; });
+    }).length;
+    var top = zones[0], tz = top ? crashNear(top.lat, top.lon, 300) : null;
+    var sp = 0; zones.slice(0, 5).forEach(function (z) { sp += crashNear(z.lat, z.lon, 300).speeding; });
+    $("crashSpan").textContent = "City of Detroit crash reports, " + crashes.years.join("–");
+    $("safety").innerHTML =
+      tile("Alerts near a crash hot spot", real.length ? Math.round(nearHot / real.length * 100) + "%" : "–", nearHot + " of " + real.length + " real alerts within 1,000 ft of a top-10% crash square") +
+      (tz ? tile("Crashes at your #1 zone", tz.n, tz.serious + " serious or fatal, within 1,000 ft") : "") +
+      tile("Speeding crashes", sp, "within 1,000 ft of your top 5 zones");
+  }
   function drawCharts() {
-    drawWeek(); drawPi();
+    drawWeek(); drawMiles(); drawSafety(); drawPi();
     var real = shown(true).filter(function (a) { return !a.isFalse; });
     var bands = state.band === "all" ? ["Ka", "K", "X"] : [state.band];
     function parts(list) { return bands.map(function (b) { return { v: list.filter(function (a) { return a.band === b; }).length, color: COLORS[b] }; }); }
@@ -914,7 +1058,23 @@ body.show .leaflet-control-zoom { display: none; }
       panel("c-dir", "Where the radar came from", "R7 arrow at the moment of the alert", svgDonut(dir)) +
       panel("c-light", "Day vs night", "From the sun's position at each alert", svgDonut(light)) +
       panel("c-wd", "Alerts by day of the week", "Stacked by band", svgBars(wds, {})) +
-      panel("c-filter", "What the filters removed", "All logged alerts, every band", svgDonut(filt));
+      panel("c-filter", "What the filters removed", "All logged alerts, every band", svgDonut(filt)) +
+      (function () {
+        var src = {}; all.forEach(function (a) { if (a.isFalse && a.near) src[a.near] = (src[a.near] || 0) + 1; });
+        var items = Object.keys(src).map(function (k) { return { label: k.split(",")[0].slice(0, 22), v: src[k], color: COLORS["false"] }; })
+          .sort(function (a, b) { return b.v - a.v; }).slice(0, 8);
+        return items.length ? panel("c-src", "Where false K alerts came from", "Nearest business to each false alert (OpenStreetMap)", svgHBars(items, 210)) : "";
+      })() +
+      (function () {
+        var by = milesByDay(), days = Object.keys(by).filter(function (k) { return by[k] >= 0.5; }).sort();
+        if (!days.length) return "";
+        var items = days.map(function (k) {
+          var n = real.filter(function (a) { return a.dayKey === k; });
+          var lbl = fmtDay.format(new Date(k + "T12:00:00Z")).replace(/^\w+, /, "");
+          return { label: lbl, parts: bands.map(function (b) { return { v: +(n.filter(function (a) { return a.band === b; }).length / by[k] * 100).toFixed(1), color: COLORS[b] }; }) };
+        });
+        return panel("c-mile", "Alerts per 100 miles, by drive", "Fair comparison between short and long drives", svgBars(items, {}));
+      })();
   }
   function savePng(id, title) {
     var svg = $(id).querySelector("svg"); if (!svg) return;
@@ -1104,16 +1264,72 @@ body.show .leaflet-control-zoom { display: none; }
   }
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") keepAwake(); });
 
+  // ---------- one-page report (prints on letter paper or saves as PDF) ----------
+  var rmap = null;
+  function siteLink() {
+    return /^https?:$/.test(location.protocol) && !/localhost|127\.0\.0\.1/.test(location.host) ? location.origin + location.pathname.replace(/index\.html$/, "") : SITE;
+  }
+  function drawReport() {
+    var real = all.filter(function (a) { return !a.isFalse; });
+    var ka = real.filter(function (a) { return a.band === "Ka"; }).length, k = real.filter(function (a) { return a.band === "K"; }).length;
+    var days = new Set(real.map(function (a) { return a.dayKey; })).size, conf = zones.filter(function (z) { return z.nDays >= 2; }).length;
+    var by = milesByDay(), mi = Object.keys(by).reduce(function (s, d) { return s + by[d]; }, 0);
+    var link = siteLink(), qr = "";
+    try { var q = qrcode(0, "M"); q.addData(link); q.make(); qr = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) {}
+    // charts in print colours
+    var keep = { ink: COLORS.ink, muted: COLORS.muted, line: COLORS.line };
+    COLORS.ink = "#14181B"; COLORS.muted = "#5A666D"; COLORS.line = "#D5DBDF";
+    function parts(list) { return ["Ka", "K"].map(function (b) { return { v: list.filter(function (a) { return a.band === b; }).length, color: COLORS[b] }; }); }
+    var hours = []; for (var h = 0; h < 24; h++) { (function (h) { hours.push({ label: h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : (h - 12) + "p", parts: parts(real.filter(function (a) { return a.hour === h; })) }); })(h); }
+    var dir = ["ahead", "side", "behind"].map(function (d, i) { return { label: ARROW_TEXT[d], v: real.filter(function (a) { return a.arrow === d; }).length, color: [COLORS.needle, "#9B8CFF", "#9AA5AB"][i] }; });
+    var c1 = svgBars(hours, { every: 3, h: 230 }), c2 = svgDonut(dir);
+    COLORS.ink = keep.ink; COLORS.muted = keep.muted; COLORS.line = keep.line;
+    var updatedTxt = updated ? fmtDay.format(updated) + ", " + fmtTime.format(updated) : "";
+    $("sheet").innerHTML =
+      '<div class="head"><div><h1>Radar Alert <span>Mapper</span></h1>' +
+        '<p class="sub">A Raspberry Pi reads a Uniden R7 radar detector and maps every alert with GPS. Red spots mean: drivers, slow down here.</p>' +
+        '<p class="sub"><b>Benjamin Kaminski</b> · Mechanical Engineering · University of Detroit Mercy</p></div>' +
+        '<div class="qr">' + qr + 'Live map</div></div>' +
+      '<div class="nums">' +
+        '<div><b>' + real.length + '</b><span>Real alerts</span></div><div><b style="color:#E0402F">' + ka + '</b><span>Ka band</span></div>' +
+        '<div><b style="color:#C98200">' + k + '</b><span>K band</span></div><div><b>' + days + '</b><span>Drives</span></div>' +
+        '<div><b>' + conf + '</b><span>Confirmed spots</span></div><div><b>' + (mi ? mi.toFixed(0) : all.filter(function (a) { return a.isFalse; }).length) + '</b><span>' + (mi ? "Miles logged" : "False removed") + '</span></div>' +
+      '</div>' +
+      '<div id="rmap" role="img" aria-label="Map of radar alerts"></div>' +
+      '<div class="cols"><div><h2>Top slow-down zones</h2><table><tr><th>#</th><th>Where</th><th>Alerts</th><th>Drives</th></tr>' +
+        zones.slice(0, 5).map(function (z, i) {
+          return "<tr><td>" + (i + 1) + "</td><td>" + esc(zoneLabel(z, i)) + (z.nDays >= 2 ? " ✓" : "") + "</td><td>" + (z.ka ? z.ka + " Ka " : "") + (z.k ? z.k + " K" : "") + "</td><td>" + z.nDays + "</td></tr>";
+        }).join("") + '</table><p class="safety">✓ = confirmed: seen on two or more drives.</p></div>' +
+        '<div><h2>How it works</h2><ol><li><b>Detect:</b> the R7 picks up K and Ka band radar.</li><li><b>Read:</b> a Pi HQ Camera reads the R7 screen (band, exact frequency, strength, direction).</li>' +
+        '<li><b>Locate:</b> a USB GPS adds place and time.</li><li><b>Filter:</b> Python drops false alerts (Q-Ride, store doors, repeat spots).</li><li><b>Share:</b> the Pi uploads new alerts to the live map by itself.</li></ol>' +
+        '<p class="safety"><b>Why:</b> knowing where radar is used is a reminder to watch your speed there. Speed is never published, and alerts near home are left out.</p></div></div>' +
+      '<div class="charts2"><div><h2>Alerts by time of day</h2>' + c1 + '</div><div><h2>Where the radar came from</h2>' + c2 + '</div></div>' +
+      '<div class="foot2">Live map: ' + esc(link) + (updatedTxt ? " · Data as of " + esc(updatedTxt) : "") + ' · Map © OpenStreetMap contributors' + (crashes ? "" : "") + '</div>';
+    setTimeout(function () {
+      if (rmap) { rmap.remove(); rmap = null; }
+      rmap = L.map("rmap", { zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, touchZoom: false });
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(rmap);
+      tracks.forEach(function (line) { L.polyline(line, { color: "#2A8C98", weight: 2, opacity: 0.6 }).addTo(rmap); });
+      if (real.length) {
+        L.heatLayer(real.map(function (a) { return [a.lat, a.lon, 1]; }), { radius: 24, blur: 18, minOpacity: 0.4, max: 4,
+          gradient: { 0.25: "#2E9E6B", 0.5: "#F2C200", 0.75: "#E36A1A", 1: "#FF4D3D" } }).addTo(rmap);
+        real.forEach(function (a) { L.circleMarker([a.lat, a.lon], { radius: 4, color: "#fff", weight: 1.5, fillColor: COLORS[a.band] || "#888", fillOpacity: 1 }).addTo(rmap); });
+        rmap.fitBounds(L.latLngBounds(real.map(function (a) { return [a.lat, a.lon]; })), { padding: [24, 24], maxZoom: 14 });
+      } else rmap.setView([42.38, -83.1], 12);
+    }, 30);
+  }
+
   // ---------- views ----------
   function setView(v) {
-    if (["map", "stats", "photos", "about"].indexOf(v) < 0) v = "map";
+    if (["map", "stats", "photos", "about", "report"].indexOf(v) < 0) v = "map";
     state.view = v;
-    ["map", "stats", "photos", "about"].forEach(function (k) { $("v-" + k).hidden = k !== v; });
+    ["map", "stats", "photos", "about", "report"].forEach(function (k) { $("v-" + k).hidden = k !== v; });
     document.querySelectorAll("nav.tabs a").forEach(function (a) { a.toggleAttribute("aria-current", a.dataset.view === v); if (a.dataset.view === v) a.setAttribute("aria-current", "page"); });
     document.body.classList.toggle("page-mode", v !== "map");
     if (v === "map") setTimeout(function () { map.invalidateSize(); }, 50);
     if (v === "stats") drawCharts();
     if (v === "photos") drawWall();
+    if (v === "report") drawReport();
   }
   window.addEventListener("hashchange", function () { setView(location.hash.slice(1)); });
 
@@ -1174,6 +1390,8 @@ body.show .leaflet-control-zoom { display: none; }
   $("replayStop").onclick = replayStop;
   $("showBtn").onclick = startShow;
   $("lapseBtn").onclick = startLapse;
+  $("reportBtn").onclick = function () { location.hash = "#report"; };
+  $("printBtn").onclick = function () { setTimeout(function () { window.print(); }, 300); };
   $("driveBtn").onclick = driveStart;
   $("driveExit").onclick = driveStop;
   $("driveTest").onclick = function () { chime(); setTimeout(function () { speak("Slow-down zone ahead, in a quarter mile. Ka band radar seen here before."); }, 450); };
@@ -1213,6 +1431,7 @@ body.show .leaflet-control-zoom { display: none; }
     if (!data) { $("foot").textContent = "Could not load the alert data (data.js)."; return; }
     all = prep(data.alerts || []);
     tracks = data.tracks || [];
+    trackStart = data.track_start || [];
     $("bPath").hidden = !tracks.length;
     buildZones();
     findSameRadar();
@@ -1233,6 +1452,16 @@ body.show .leaflet-control-zoom { display: none; }
     h.src = "health.js?v=" + Date.now();
     h.onload = function () { health = window.RADAR_HEALTH || null; if (state.view === "stats") drawPi(); };
     document.body.appendChild(h);
+    var c = document.createElement("script");                // Detroit crash squares (optional file)
+    c.src = "crashes.js?v=" + Date.now();
+    c.onload = function () {
+      crashes = window.RADAR_CRASHES || null;
+      if (!crashes || !crashes.cells.length) { crashes = null; return; }
+      crashLevels(); $("bCrash").hidden = false;
+      if (state.view === "stats") drawCharts();
+      if (state.selected != null) { var a = all.find(function (x) { return x.id === state.selected; }); if (a) select(a, false); }
+    };
+    document.body.appendChild(c);
   }
   var s = document.createElement("script");
   s.src = "data.js?v=" + Date.now();                         // always fresh, so a new drive shows up right away
