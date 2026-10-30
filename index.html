@@ -4,243 +4,447 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Radar Alert Mapper</title>
-<meta name="description" content="Where a Uniden R7 radar detector picked up radar around Detroit. Slow down in the hot spots.">
+<meta name="description" content="Where a Uniden R7 radar detector picked up radar around Detroit, logged by a Raspberry Pi with GPS. Slow down in the hot spots.">
+<meta name="theme-color" content="#0B0E10">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;600;800&family=Saira:wght@400;500;600&family=Share+Tech+Mono&display=swap">
 <link rel="stylesheet" href="vendor/leaflet.css">
 <style>
-/* Layout: full-height map app. Desktop: control rail on the left, map on the right.
-   Phone: header, filters, map, then the alert list; alert details slide up over the map. */
+/* Layout: a car's instrument cluster. Left: gauge cluster, controls and lists like a centre console.
+   Right: the map as the windscreen. Phone: everything stacks, the map sits under the gauges.
+   One deliberate look (night-driving dashboard), so there is no light theme. */
 :root {
-  --bg: #F3F4F1;          /* concrete */
-  --panel: #FFFFFF;
-  --ink: #1C2321;         /* asphalt */
-  --muted: #5D6763;
-  --line: #DADDD7;
-  --sign: #0F5B3A;        /* highway sign green */
-  --sign-ink: #FFFFFF;
-  --ka: #C8372D;
-  --k: #D99206;
-  --x: #2F6FA3;
-  --false: #8A938F;
-  --chip: #E8EAE5;
-  --shadow: 0 6px 24px rgba(20, 30, 25, .18);
-  --display: "Overpass", "Highway Gothic", "Arial Narrow", Arial, sans-serif;
-  --body: "Overpass", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "Overpass Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #121615; --panel: #1A201E; --ink: #E7EBE8; --muted: #9AA49F; --line: #2C3431;
-    --sign: #1F8A5A; --sign-ink: #FFFFFF; --ka: #FF5A4E; --k: #FFB42E; --x: #5AA2E0;
-    --false: #7D8783; --chip: #252C29; --shadow: 0 6px 24px rgba(0, 0, 0, .5);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #121615; --panel: #1A201E; --ink: #E7EBE8; --muted: #9AA49F; --line: #2C3431;
-  --sign: #1F8A5A; --sign-ink: #FFFFFF; --ka: #FF5A4E; --k: #FFB42E; --x: #5AA2E0;
-  --false: #7D8783; --chip: #252C29; --shadow: 0 6px 24px rgba(0, 0, 0, .5);
+  --cabin: #0B0E10;        /* dashboard plastic */
+  --panel: #13181B;
+  --panel-2: #1A2024;
+  --line: #262E33;
+  --ink: #E8ECEE;
+  --muted: #8C989F;
+  --needle: #4FD1DE;       /* instrument backlight */
+  --ka: #FF4D3D;
+  --k: #FFB020;
+  --x: #5AA2E0;
+  --false: #6E7A80;
+  --go: #3FCF7A;
+  --display: "Saira Semi Condensed", "Arial Narrow", Arial, sans-serif;
+  --body: "Saira", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --digital: "Share Tech Mono", ui-monospace, Consolas, monospace;
   color-scheme: dark;
 }
-
 * { box-sizing: border-box; }
-[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body {
-  background: var(--bg); color: var(--ink); font: 15px/1.45 var(--body);
-  display: grid; grid-template-columns: 360px 1fr; grid-template-rows: 100%;
+  background: var(--cabin); color: var(--ink); font: 15px/1.45 var(--body);
+  display: grid; grid-template-columns: 390px 1fr; grid-template-rows: 100%;
 }
-button, select { font: inherit; color: inherit; }
-:focus-visible { outline: 3px solid var(--k); outline-offset: 2px; }
+[hidden] { display: none !important; }
+button, select, a { font: inherit; color: inherit; }
+a { color: var(--needle); }
+:focus-visible { outline: 2px solid var(--needle); outline-offset: 2px; }
 
-/* ---- left rail ---- */
-.rail {
-  background: var(--panel); border-right: 1px solid var(--line);
-  display: flex; flex-direction: column; min-height: 0; min-width: 0;
-}
-.sign {
-  background: var(--sign); color: var(--sign-ink);
-  padding-block: 18px 16px; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: 18px;
-  padding-top: max(18px, env(safe-area-inset-top, 0px));
-}
-.sign h1 {
-  margin: 0; font: 800 26px/1.05 var(--display); letter-spacing: .01em; text-wrap: balance;
-}
-.sign p { margin: 6px 0 0; font-size: 14px; opacity: .92; }
-.sign .slow {
-  display: inline-block; margin-top: 10px; padding: 3px 8px 1px; border: 2px solid currentColor;
-  border-radius: 4px; font: 800 12px/1.3 var(--display); letter-spacing: .12em; text-transform: uppercase;
-}
+/* ---------- left console ---------- */
+.rail { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column;
+  min-height: 0; min-width: 0; }
+.top { padding: max(14px, env(safe-area-inset-top, 0px)) 18px 10px max(18px, env(safe-area-inset-left, 0px));
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.brand { display: flex; flex-direction: column; min-width: 0; }
+.brand h1 { margin: 0; font: 800 23px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.brand h1 span { color: var(--k); }
+.brand small { color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+.live { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--display); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px 4px; white-space: nowrap; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--false); }
+.live.on { color: var(--ink); border-color: var(--ka); }
+.live.on i { background: var(--ka); box-shadow: 0 0 0 0 var(--ka); animation: pulse 1.6s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,77,61,.7); } 100% { box-shadow: 0 0 0 9px rgba(255,77,61,0); } }
 
-.stats {
-  display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line);
-}
-.stat { padding: 12px 8px 10px; text-align: center; border-right: 1px solid var(--line); }
-.stat:last-child { border-right: 0; }
-.stat b { display: block; font: 800 24px/1 var(--display); font-variant-numeric: tabular-nums; }
-.stat span { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.stat.ka b { color: var(--ka); } .stat.k b { color: var(--k); }
+nav.tabs { display: flex; gap: 4px; padding: 0 14px 10px; }
+nav.tabs a { flex: 1; text-align: center; text-decoration: none; color: var(--muted); padding: 7px 4px 5px;
+  border-radius: 8px; font: 600 13px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; }
+nav.tabs a[aria-current="page"] { background: var(--panel-2); color: var(--ink); box-shadow: inset 0 -2px 0 var(--needle); }
 
-.controls { display: grid; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+/* gauge cluster */
+.cluster { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; padding: 4px 10px 12px;
+  border-bottom: 1px solid var(--line); }
+.gauge { text-align: center; min-width: 0; }
+.gauge svg { width: 100%; max-width: 72px; height: auto; display: block; margin: 0 auto; overflow: visible; }
+.gauge .lbl { font: 600 10px/1.1 var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+.controls { display: grid; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.row > label.cap {
-  width: 100%; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
-}
-.chip {
-  border: 1px solid var(--line); background: var(--chip); border-radius: 999px;
-  padding: 5px 12px 3px; cursor: pointer; font-weight: 600; font-size: 14px;
-  display: inline-flex; align-items: center; gap: 6px;
-}
-.chip[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
-select {
-  border: 1px solid var(--line); background: var(--chip); border-radius: 8px; padding: 6px 10px 4px;
-  max-width: 100%;
-}
-.toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
-.toggle input { width: 18px; height: 18px; accent-color: var(--sign); }
+.cap { width: 100%; font: 600 10px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.chip { border: 1px solid var(--line); background: var(--panel-2); border-radius: 6px; padding: 5px 11px 4px;
+  cursor: pointer; font: 600 13px/1.2 var(--display); letter-spacing: .05em; display: inline-flex; align-items: center; gap: 6px; }
+.chip[aria-pressed="true"] { border-color: var(--needle); color: #fff; box-shadow: inset 0 0 0 1px var(--needle); background: #12292D; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+select { border: 1px solid var(--line); background: var(--panel-2); border-radius: 6px; padding: 5px 9px; max-width: 100%; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.toggle input { width: 16px; height: 16px; accent-color: var(--needle); }
+.btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--panel-2); border-radius: 6px; padding: 6px 10px 5px; cursor: pointer;
+  font: 600 12px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; display: inline-flex; gap: 6px; align-items: center; }
+.btn:hover { border-color: var(--needle); }
 
+.subtabs { display: flex; border-bottom: 1px solid var(--line); }
+.subtabs button { flex: 1; background: none; border: 0; padding: 9px 4px 7px; color: var(--muted); cursor: pointer;
+  font: 600 12px/1 var(--display); letter-spacing: .12em; text-transform: uppercase; }
+.subtabs button[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--k); }
 .list { overflow-y: auto; min-height: 0; flex: 1; padding-bottom: env(safe-area-inset-bottom, 0px); }
-.day {
-  position: sticky; top: 0; background: var(--panel); z-index: 1;
-  padding: 10px 18px 6px; font: 800 12px/1 var(--display); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--muted); border-bottom: 1px solid var(--line);
-}
-.item {
-  display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: center; width: 100%;
-  padding: 9px 18px; border: 0; border-bottom: 1px solid var(--line); background: none;
-  text-align: left; cursor: pointer;
-}
-.item:hover, .item.on { background: var(--chip); }
-.item .f { font: 700 15px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.day { position: sticky; top: 0; background: var(--panel); z-index: 1; padding: 9px 18px 6px;
+  font: 600 11px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.item { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; width: 100%;
+  padding: 8px 18px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; }
+.item:hover, .item.on { background: var(--panel-2); }
+.item .f { font: 17px/1.1 var(--digital); }
 .item .s { font-size: 12px; color: var(--muted); }
-.item .tm { font: 500 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.item.false { opacity: .6; }
-.pill {
-  font: 800 13px/1 var(--display); text-align: center; padding: 5px 0 3px; border-radius: 4px;
-  color: #fff; letter-spacing: .02em;
-}
-.pill.Ka { background: var(--ka); } .pill.K { background: var(--k); color: #1C1405; }
-.pill.X { background: var(--x); } .pill.q, .pill.false { background: var(--false); }
-.foot { padding: 10px 18px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+.item .tm { font: 13px var(--digital); color: var(--muted); text-align: right; }
+.item.false { opacity: .55; }
+.pill { font: 800 13px/1 var(--display); text-align: center; padding: 5px 0 3px; border-radius: 4px; color: #120A05; }
+.pill.Ka { background: var(--ka); color: #fff; } .pill.K { background: var(--k); } .pill.X { background: var(--x); color: #fff; }
+.pill.q, .pill.false { background: var(--false); color: #fff; }
+.zone { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; width: 100%; padding: 10px 18px;
+  border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; }
+.zone:hover { background: var(--panel-2); }
+.zone .rank { font: 800 22px/1 var(--display); color: var(--k); text-align: center; }
+.zone .nm { font-weight: 600; }
+.zone .s { font-size: 12px; color: var(--muted); }
+.zone .n { font: 20px var(--digital); }
+.badge { display: inline-block; font: 600 10px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px 2px;
+  border-radius: 4px; border: 1px solid var(--go); color: var(--go); vertical-align: 1px; }
+.foot { padding: 9px 18px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
+.empty { padding: 22px 18px; color: var(--muted); }
 
-/* ---- map ---- */
-.mapwrap { position: relative; min-width: 0; min-height: 0; }
-#map { position: absolute; inset: 0; background: var(--bg); }
-.legend {
-  position: absolute; z-index: 500; left: 12px; bottom: calc(22px + env(safe-area-inset-bottom, 0px));
-  background: var(--panel); color: var(--ink); border-radius: 8px; box-shadow: var(--shadow);
-  padding: 8px 12px; font-size: 12px; display: grid; gap: 4px; max-width: calc(100% - 24px);
-}
-.ramp { height: 8px; width: 150px; max-width: 100%; border-radius: 4px;
-  background: linear-gradient(90deg, #2E9E6B, #F2C200, #E36A1A, #C8372D); }
+/* ---------- views on the right ---------- */
+.stage { position: relative; min-width: 0; min-height: 0; }
+.view { position: absolute; inset: 0; overflow: auto; }
+#map { position: absolute; inset: 0; background: #0D1012; }
+.tiles-dark { filter: invert(1) hue-rotate(185deg) brightness(.78) contrast(.92) saturate(.6); }
+.leaflet-container { font: inherit; }
+.leaflet-control-attribution { font-size: 10px; background: rgba(11,14,16,.75) !important; color: var(--muted); }
+.leaflet-control-attribution a { color: var(--muted); }
+.leaflet-bar a { background: var(--panel); color: var(--ink); border-color: var(--line); }
+.leaflet-bar a:hover { background: var(--panel-2); }
+.leaflet-control-scale-line { background: rgba(11,14,16,.7); color: var(--muted); border-color: var(--muted); }
+.leaflet-tooltip { background: var(--panel); color: var(--ink); border: 1px solid var(--line); font: 13px var(--digital); }
+.leaflet-tooltip-top:before { border-top-color: var(--line); }
+.carpin { transition: transform .2s; }
+
+.legend { position: absolute; z-index: 500; left: 12px; bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  background: rgba(19,24,27,.92); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 12px;
+  display: grid; gap: 5px; max-width: calc(100% - 24px); }
+.ramp { height: 7px; width: 160px; max-width: 100%; border-radius: 4px; background: linear-gradient(90deg, #2E9E6B, #F2C200, #E36A1A, #FF4D3D); }
 .ramp-l { display: flex; justify-content: space-between; color: var(--muted); }
 
-/* ---- alert detail card ---- */
-.card {
-  position: absolute; z-index: 1000; right: 12px; top: 12px; width: 330px; max-width: calc(100% - 24px);
-  max-height: calc(100% - 24px); overflow-y: auto;
-  background: var(--panel); border-radius: 10px; box-shadow: var(--shadow);
-}
-.card img { display: block; width: 100%; aspect-ratio: 1030 / 430; object-fit: cover; background: #000;
-  border-radius: 10px 10px 0 0; }
-.card .noimg { aspect-ratio: 1030 / 430; display: grid; place-items: center; background: #000; color: #888;
-  border-radius: 10px 10px 0 0; font-size: 13px; }
-.card .body { padding: 12px 14px 14px; display: grid; gap: 10px; }
-.readout { display: flex; align-items: baseline; gap: 10px; }
+.replay { position: absolute; z-index: 600; left: 50%; transform: translateX(-50%); bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  background: rgba(19,24,27,.95); border: 1px solid var(--line); border-radius: 999px; padding: 6px 8px 6px 6px;
+  display: flex; align-items: center; gap: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.5); max-width: calc(100% - 24px); }
+.replay button { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--needle); color: #052126; cursor: pointer;
+  font-size: 15px; flex: none; }
+.replay .clock { font: 20px var(--digital); min-width: 9ch; text-align: center; }
+.replay .meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.card { position: absolute; z-index: 1000; right: 12px; top: 12px; width: 350px; max-width: calc(100% - 24px); max-height: calc(100% - 24px);
+  overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+.card img { display: block; width: 100%; aspect-ratio: 1030 / 430; object-fit: cover; background: #000; border-radius: 12px 12px 0 0; }
+.card .noimg { aspect-ratio: 1030 / 430; display: grid; place-items: center; background: #000; color: var(--muted); border-radius: 12px 12px 0 0; font-size: 13px; }
+.card .body { padding: 12px 14px 14px; display: grid; gap: 12px; }
+.readout { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .readout .pill { padding: 6px 10px 4px; font-size: 16px; }
-.readout .fq { font: 700 28px/1 var(--mono); font-variant-numeric: tabular-nums; }
-.readout .fq small { font-size: 14px; color: var(--muted); }
+.readout .fq { font: 32px/1 var(--digital); color: var(--k); text-shadow: 0 0 12px rgba(255,176,32,.35); }
+.readout .fq.Ka { color: var(--ka); text-shadow: 0 0 12px rgba(255,77,61,.35); }
+.readout .fq small { font-size: 14px; color: var(--muted); text-shadow: none; }
+.dirrow { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; }
+.dirrow svg { width: 96px; height: 96px; }
+.dirrow b { display: block; font: 600 16px/1.25 var(--display); }
+.dirrow span { color: var(--muted); font-size: 13px; }
 .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 0; }
 .kv div { min-width: 0; }
-.kv dt { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kv dt { font: 600 10px/1.2 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.kv dd { margin: 0; font-weight: 600; }
 .bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; vertical-align: -1px; margin-right: 6px; }
 .bars i { width: 4px; background: var(--line); border-radius: 1px; }
 .bars i.on { background: var(--k); }
-.close {
-  position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%;
-  border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 18px; line-height: 1; cursor: pointer;
-}
+.close { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%; border: 0;
+  background: rgba(0,0,0,.65); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
 .note { font-size: 12px; color: var(--muted); margin: 0; }
-.empty { padding: 24px 18px; color: var(--muted); }
 
-.leaflet-container { font: inherit; }
-.leaflet-control-attribution { font-size: 10px; }
-.tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+/* stats + about + photos pages */
+.page { max-width: 1100px; margin: 0 auto; padding: 24px max(20px, env(safe-area-inset-right, 0px)) 40px max(20px, env(safe-area-inset-left, 0px)); }
+.page h2 { font: 800 30px/1.1 var(--display); letter-spacing: .03em; text-transform: uppercase; margin: 0 0 6px; text-wrap: balance; }
+.page h3 { font: 600 18px/1.2 var(--display); letter-spacing: .05em; text-transform: uppercase; margin: 0 0 4px; }
+.page p.lead { color: var(--muted); margin: 0 0 22px; max-width: 65ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.panel header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.panel header p { margin: 0; color: var(--muted); font-size: 12px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.shot { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; padding: 0; text-align: left; }
+.shot:hover { border-color: var(--needle); }
+.shot img { display: block; width: 100%; aspect-ratio: 1030 / 430; object-fit: cover; background: #000; }
+.shot div { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; font-size: 12px; color: var(--muted); }
+.shot div b { font: 15px var(--digital); color: var(--ink); }
+.flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 6px 0 24px; }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; position: relative; min-width: 0; }
+.step .ic { font: 800 12px/1 var(--display); letter-spacing: .14em; color: var(--needle); text-transform: uppercase; }
+.step b { display: block; font: 600 17px/1.2 var(--display); margin: 6px 0 4px; }
+.step p { margin: 0; font-size: 13px; color: var(--muted); }
+.step:not(:last-child)::after { content: "›"; position: absolute; right: -10px; top: 50%; transform: translateY(-50%);
+  color: var(--needle); font: 800 22px/1 var(--display); }
+.about-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.about-cols p, .about-cols li { color: var(--muted); }
+.about-cols b { color: var(--ink); }
+.sign { display: inline-block; border: 2px solid var(--k); color: var(--k); border-radius: 6px; padding: 4px 10px 2px;
+  font: 800 13px/1.3 var(--display); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 14px; }
 
-/* ---- phone ---- */
-@media (max-width: 760px) {
+/* signal graph + same radar in the card */
+.sig { display: grid; gap: 6px; }
+.sig svg { width: 100%; height: 46px; display: block; }
+.optbtn { justify-self: start; border: 1px solid var(--needle); background: #12292D; color: #fff; border-radius: 6px; padding: 6px 10px 5px;
+  cursor: pointer; font: 600 12px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; }
+.optbtn[aria-pressed="true"] { background: var(--needle); color: #052126; }
+.twins { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.twins button { width: 100%; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+  cursor: pointer; font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+.twins button:hover { border-color: var(--needle); }
+.twins b { font: 14px var(--digital); }
+.peakpin { pointer-events: none; }
+.secttl { font: 600 10px/1.2 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.btn.go { border-color: var(--go); color: #fff; background: #10291C; }
+
+/* Pi status + weekly roundup tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.tile .k { font: 600 10px/1.2 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.tile .v { font: 26px/1.15 var(--digital); margin-top: 4px; overflow-wrap: anywhere; }
+.tile .d { font-size: 12px; color: var(--muted); }
+.tile.ok { box-shadow: inset 3px 0 0 var(--go); } .tile.warn { box-shadow: inset 3px 0 0 var(--k); } .tile.bad { box-shadow: inset 3px 0 0 var(--ka); }
+.sect { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; }
+.sect h3 { margin: 0; }
+.sect span { color: var(--muted); font-size: 12px; }
+
+/* heads-up drive mode: one big glanceable screen, talks so you don't have to look */
+.drive { position: fixed; inset: 0; z-index: 3000; background: #050708; display: grid; grid-template-rows: auto 1fr auto;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.drive header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.drive header b { font: 800 16px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.drive .big { display: grid; place-content: center; text-align: center; gap: 10px; }
+.drive .state { font: 800 clamp(34px, 9vw, 84px)/1 var(--display); letter-spacing: .04em; text-transform: uppercase; color: var(--go); text-wrap: balance; }
+.drive .dist { font: clamp(56px, 18vw, 160px)/1 var(--digital); color: var(--ink); }
+.drive .where { font: 600 clamp(16px, 4vw, 26px)/1.3 var(--display); color: var(--muted); }
+.drive.near .state { color: var(--k); }
+.drive.inzone { background: #2A0805; }
+.drive.inzone .state { color: var(--ka); }
+.drive footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+.drive .btn { font-size: 14px; padding: 10px 14px 9px; }
+
+/* symposium mode */
+body.show { grid-template-columns: 1fr; }
+body.show .rail { display: none; }
+.showbar { position: absolute; z-index: 1100; left: 16px; top: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; pointer-events: none; }
+.showbar > * { pointer-events: auto; }
+.showtitle { background: rgba(11,14,16,.9); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+.showtitle h2 { margin: 0; font: 800 34px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.showtitle h2 span { color: var(--k); }
+.showtitle p { margin: 4px 0 0; color: var(--muted); }
+.showzone { font: 600 18px/1.3 var(--display); margin-top: 8px; color: var(--needle); }
+body.show .card { top: 70px; }
+body.show .leaflet-control-zoom { display: none; }
+
+@media (max-width: 860px) {
   body { display: flex; flex-direction: column; height: auto; }
-  .sign { order: 1; } .stats { order: 2; } .controls { order: 3; } .mapwrap { order: 4; } .list { order: 5; } .foot { order: 6; }
   .rail { border-right: 0; display: contents; }
-  .sign { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-  .sign h1 { font-size: 22px; }
-  .controls { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--panel); }
-  .stats { background: var(--panel); }
-  .mapwrap { height: 62vh; min-height: 340px; }
-  .list { overflow: visible; background: var(--panel); }
+  .top { order: 1; background: var(--panel); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  nav.tabs { order: 2; background: var(--panel); }
+  .cluster { order: 3; background: var(--panel); }
+  .controls { order: 4; background: var(--panel); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .stage { order: 5; height: 64vh; min-height: 360px; }
+  body.page-mode .stage { height: auto; min-height: 0; }
+  body.page-mode .view { position: static; }
+  body.page-mode .controls, body.page-mode .subtabs, body.page-mode .list { display: none; }
+  .subtabs { order: 6; background: var(--panel); }
+  .list { order: 7; overflow: visible; background: var(--panel); }
+  .foot { order: 8; background: var(--panel); }
   .day { position: static; }
-  .card { top: auto; bottom: 10px; left: 10px; right: 10px; width: auto; max-height: 70%; }
-  .card img, .card .noimg { aspect-ratio: 1030 / 360; }
-  .legend { bottom: 12px; }
-  .card:not([hidden]) ~ .legend { display: none; }
+  .card { top: auto; bottom: 10px; left: 10px; right: 10px; width: auto; max-height: 72%; }
+  .card img, .card .noimg { aspect-ratio: 1030 / 330; }
+  .card:not([hidden]) ~ .legend, .card:not([hidden]) ~ .replay { display: none; }
+  .flow { grid-template-columns: 1fr; }
+  .step:not(:last-child)::after { content: "⌄"; right: 50%; top: auto; bottom: -16px; transform: translateX(50%); }
+  .about-cols { grid-template-columns: 1fr; }
+  .legend { display: none; }
+  .tile .v { font-size: 22px; }
+  body.show .stage { height: 100vh; height: 100dvh; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
 <aside class="rail">
-  <header class="sign">
-    <h1>Radar Alert Mapper</h1>
-    <p>Every spot where my Uniden R7 radar detector picked up radar, logged with GPS while driving around Detroit.</p>
-    <span class="slow">Hot spot ahead: slow down</span>
-  </header>
-
-  <div class="stats" aria-label="Totals for what is shown">
-    <div class="stat"><b id="sAll">0</b><span>Alerts</span></div>
-    <div class="stat ka"><b id="sKa">0</b><span>Ka</span></div>
-    <div class="stat k"><b id="sK">0</b><span>K</span></div>
-    <div class="stat"><b id="sDays">0</b><span>Drive days</span></div>
+  <div class="top">
+    <div class="brand">
+      <h1>Radar Alert <span>Mapper</span></h1>
+      <small>Slow-down spots around Detroit, logged live by a Pi in my car</small>
+    </div>
+    <span class="live" id="live" title="When the map last got new data"><i></i><span id="liveTxt">Offline</span></span>
   </div>
+  <nav class="tabs" aria-label="Pages">
+    <a href="#map" data-view="map">Map</a>
+    <a href="#stats" data-view="stats">Stats</a>
+    <a href="#photos" data-view="photos">Photos</a>
+    <a href="#about" data-view="about">About</a>
+  </nav>
+
+  <div class="cluster" id="cluster" aria-label="Totals for what is shown"></div>
 
   <div class="controls">
     <div class="row" role="group" aria-label="Band">
-      <label class="cap">Band</label>
-      <button class="chip" id="bAll" data-band="all" aria-pressed="true">All</button>
+      <span class="cap">Band</span>
+      <button class="chip" data-band="all" aria-pressed="true">All</button>
       <button class="chip" data-band="Ka" aria-pressed="false"><span class="dot" style="background:var(--ka)"></span>Ka</button>
       <button class="chip" data-band="K" aria-pressed="false"><span class="dot" style="background:var(--k)"></span>K</button>
       <button class="chip" data-band="X" aria-pressed="false" id="bX" hidden><span class="dot" style="background:var(--x)"></span>X</button>
     </div>
-    <div class="row" role="group" aria-label="Map view">
-      <label class="cap">Show on map</label>
-      <button class="chip" data-view="both" aria-pressed="true">Heat + spots</button>
-      <button class="chip" data-view="heat" aria-pressed="false">Heat</button>
-      <button class="chip" data-view="dots" aria-pressed="false">Spots</button>
+    <div class="row" role="group" aria-label="Map layers">
+      <span class="cap">On the map</span>
+      <button class="chip" data-layer="heat" aria-pressed="true">Heat</button>
+      <button class="chip" data-layer="spots" aria-pressed="true">Spots</button>
+      <button class="chip" data-layer="cones" aria-pressed="true">Radar direction</button>
+      <button class="chip" data-layer="path" aria-pressed="true" id="bPath" hidden>Drive path</button>
     </div>
     <div class="row">
-      <label class="cap" for="day">Drive day</label>
-      <select id="day"><option value="all">All days</option></select>
+      <span class="cap">Drive day · light</span>
+      <select id="day" aria-label="Drive day"><option value="all">All drive days</option></select>
+      <select id="light" aria-label="Day or night">
+        <option value="all">Day + night</option><option value="day">☀ Daylight</option><option value="night">☾ Dark</option>
+      </select>
     </div>
-    <label class="toggle"><input type="checkbox" id="showFalse"> Show false alerts (grey)</label>
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="confirmedOnly"> Confirmed spots only</label>
+      <label class="toggle"><input type="checkbox" id="showFalse"> Show false alerts</label>
+    </div>
+    <div class="btns">
+      <button class="btn go" id="driveBtn">🔊 Heads-up mode</button>
+      <button class="btn" id="replayBtn">▶ Replay drive</button>
+      <button class="btn" id="lapseBtn">⏵ Timelapse</button>
+      <button class="btn" id="showBtn">⛶ Symposium mode</button>
+      <button class="btn" id="csvBtn">⤓ Download data</button>
+      <button class="btn" id="installBtn" hidden>⊕ Install app</button>
+    </div>
   </div>
 
-  <div class="list" id="list" aria-label="Alert list"></div>
+  <div class="subtabs" role="group" aria-label="List">
+    <button data-list="zones" aria-pressed="true">Top slow-down zones</button>
+    <button data-list="alerts" aria-pressed="false">All alerts</button>
+  </div>
+  <div class="list" id="list"></div>
   <div class="foot" id="foot">Loading alerts…</div>
 </aside>
 
-<main class="mapwrap">
-  <div id="map" role="application" aria-label="Map of radar alerts"></div>
-  <article class="card" id="card" hidden></article>
-  <div class="legend" id="legend">
-    <div class="ramp"></div>
-    <div class="ramp-l"><span>1 alert</span><span>many alerts</span></div>
-    <div><span class="dot" style="background:var(--ka)"></span> Ka &nbsp; <span class="dot" style="background:var(--k)"></span> K &nbsp; Tap a spot for the R7 screen</div>
-  </div>
+<main class="stage">
+  <section class="view" id="v-map">
+    <div id="map" role="application" aria-label="Map of radar alerts"></div>
+    <article class="card" id="card" hidden></article>
+    <div class="legend">
+      <div class="ramp"></div>
+      <div class="ramp-l"><span>1 alert</span><span>many alerts</span></div>
+      <div><span class="dot" style="background:var(--ka)"></span> Ka &nbsp; <span class="dot" style="background:var(--k)"></span> K &nbsp;
+        <span style="color:var(--needle)">▲</span> my heading &nbsp; <span style="color:var(--muted)">◢</span> radar side</div>
+    </div>
+    <div class="replay" id="replay" hidden>
+      <button id="replayPlay" aria-label="Pause">❚❚</button>
+      <div><div class="clock" id="replayClock">--:--</div><div class="meta" id="replayMeta"></div></div>
+      <button id="replayStop" aria-label="Stop replay" style="background:var(--panel-2);color:var(--ink)">✕</button>
+    </div>
+    <div class="showbar" id="showbar" hidden>
+      <div class="showtitle">
+        <h2>Radar Alert <span>Mapper</span></h2>
+        <p>A Raspberry Pi reads my radar detector and maps every alert. Red = slow down here.</p>
+        <div class="showzone" id="showZone"></div>
+      </div>
+      <button class="btn" id="showExit">✕ Exit</button>
+    </div>
+  </section>
+
+  <section class="view" id="v-stats" hidden>
+    <div class="page">
+      <h2>The numbers</h2>
+      <p class="lead">Every chart counts real alerts only (false and Q-Ride alerts are left out) and follows the band filter.
+        Each one saves as a picture for a poster or slides.</p>
+      <div class="sect"><h3>This week</h3><span id="weekSpan"></span></div>
+      <div class="tiles" id="week"></div>
+      <div class="sect"><h3>Pi status</h3><span id="piSpan"></span></div>
+      <div class="tiles" id="pi"></div>
+      <div class="sect"><h3>Charts</h3></div>
+      <div class="grid" id="charts"></div>
+    </div>
+  </section>
+
+  <section class="view" id="v-photos" hidden>
+    <div class="page">
+      <h2>What the R7 saw</h2>
+      <p class="lead">The camera takes a photo of the detector's screen at every alert. The left box (my speed) is blacked out before it goes online. Tap a photo to see where it happened.</p>
+      <div class="wall" id="wall"></div>
+    </div>
+  </section>
+
+  <section class="view" id="v-about" hidden>
+    <div class="page">
+      <span class="sign">Hot spot ahead · slow down</span>
+      <h2>About the project</h2>
+      <p class="lead">Radar Alert Mapper turns a radar detector into a shared road-safety map. Like a Waze report, a red spot means
+        "drivers, slow down here." Built as a first-year engineering research project at the University of Detroit Mercy.</p>
+
+      <h3>How it works</h3>
+      <div class="flow">
+        <div class="step"><span class="ic">1 · Detect</span><b>Uniden R7</b><p>The radar detector picks up K and Ka band radar and shows the band, exact frequency, strength and direction.</p></div>
+        <div class="step"><span class="ic">2 · Read</span><b>Camera</b><p>A Raspberry Pi HQ Camera on a 3D-printed mount watches the R7's screen and reads it with image processing and OCR.</p></div>
+        <div class="step"><span class="ic">3 · Locate</span><b>GPS</b><p>A USB GPS adds the exact position and time to every alert.</p></div>
+        <div class="step"><span class="ic">4 · Filter</span><b>Raspberry Pi 5</b><p>Python code drops false alerts: Q-Ride (the R7's own false-alert mode), store doors and repeat spots.</p></div>
+        <div class="step"><span class="ic">5 · Share</span><b>This map</b><p>Whenever the Pi has Wi-Fi it uploads new alerts here by itself, every 5 minutes.</p></div>
+      </div>
+
+      <div class="about-cols">
+        <div class="panel">
+          <h3>Reading the map</h3>
+          <ul>
+            <li><b>Heat:</b> green = one alert, red = many. Red areas are where to slow down.</li>
+            <li><b>Ka (red) and K (amber):</b> the two main radar bands used on the road. K also comes from some automatic store doors, which the filters try to remove.</li>
+            <li><b>Car arrow:</b> which way I was driving (the R7's compass).</li>
+            <li><b>Shaded wedge:</b> which side the radar came from, using the R7's direction arrow (ahead, behind or to the side).</li>
+            <li><b>Confirmed:</b> a spot seen on two or more different drives.</li>
+            <li><b>Signal peak:</b> tap an alert, then "Show where the signal peaked". The strongest reading is about where the radar was.</li>
+            <li><b>Same radar again:</b> the same exact frequency seen again in the same place is probably the same radar unit.</li>
+            <li><b>Heads-up mode:</b> open the site on your phone before driving. It uses your GPS and says "slow-down zone ahead" out loud.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Privacy and safety</h3>
+          <p>Alerts near where I live are never uploaded. My speed is not shown anywhere on this site, and it is blacked out of the photos.</p>
+          <p>The project's goal is safer driving: knowing where radar is used is a reminder to watch your speed there.</p>
+          <h3 style="margin-top:14px">Built by</h3>
+          <p><b>Benjamin Kaminski</b>, mechanical engineering, University of Detroit Mercy. Presented at the UDM Engineering &amp; Science Research Symposium, November 2026.</p>
+          <p>Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
+
+<section class="drive" id="drive" hidden aria-live="polite">
+  <header><b>Heads-up mode</b><button class="btn" id="driveExit">✕ Exit</button></header>
+  <div class="big">
+    <div class="state" id="dState">Finding GPS…</div>
+    <div class="dist" id="dDist"></div>
+    <div class="where" id="dWhere">Allow location when your phone asks.</div>
+  </div>
+  <footer><span id="dInfo">Set it up before you drive. It speaks, so you never need to look at it.</span>
+    <button class="btn" id="driveTest">🔊 Test voice</button></footer>
+</section>
 
 <script src="vendor/leaflet.js"></script>
 <script src="vendor/leaflet-heat.js"></script>
@@ -248,187 +452,791 @@ select {
 (function () {
   "use strict";
   var TZ = "America/New_York";
-  var state = { band: "all", view: "both", day: "all", showFalse: false, selected: null };
-  var css = getComputedStyle(document.documentElement);
-  function tok(n) { return css.getPropertyValue(n).trim(); }
+  var COLORS = { Ka: "#FF4D3D", K: "#FFB020", X: "#5AA2E0", false: "#6E7A80", needle: "#4FD1DE", muted: "#8C989F", line: "#262E33", ink: "#E8ECEE", panel: "#13181B" };
+  var HEADING_DEG = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+  var ARROW_TEXT = { ahead: "Ahead of me", behind: "Behind me", side: "To my side" };
+  var state = { band: "all", day: "all", light: "all", layers: { heat: true, spots: true, cones: true, path: true },
+                showFalse: false, confirmedOnly: false, list: "zones", selected: null, view: "map", replayUntil: null, peakFor: null };
 
-  // ---------- map ----------
-  var dark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
-  var dt = document.documentElement.getAttribute("data-theme");
-  if (dt) dark = dt === "dark";
-  var map = L.map("map", { zoomControl: true, preferCanvas: true }).setView([42.38, -83.1], 12);
-  // OpenStreetMap's own tiles need no account or key; in dark mode they are dimmed with a CSS filter
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, className: dark ? "tiles-dark" : "",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }).addTo(map);
-  L.control.scale({ imperial: true, metric: false }).addTo(map);
-  var heat = null, dots = L.layerGroup().addTo(map);
+  // ---------- helpers ----------
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function $(id) { return document.getElementById(id); }
+  var fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" });
+  var fmtTime = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
+  var fmtTimeS = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit", second: "2-digit" });
+  var fmtKey = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+  var fmtHour = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
+  var fmtWd = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" });
+  var REASONS = { muted: "Q-Ride", repeat_K: "same spot many days", known_spot: "known false spot" };
+  function why(a) { return a.reason ? " (" + esc(REASONS[a.reason] || a.reason) + ")" : ""; }
+  function color(a) { return a.isFalse ? COLORS["false"] : (COLORS[a.band] || COLORS["false"]); }
+  function cls(a) { return a.isFalse ? "false" : (a.band === "?" ? "q" : a.band); }
+
+  // sun height above the horizon (degrees), NOAA's simple formula: enough to tell day from night
+  function sunAltitude(date, lat, lon) {
+    var rad = Math.PI / 180, d = date / 86400000 - 10957.5;               // days since 2000-01-01 12:00 UTC
+    var g = (357.529 + 0.98560028 * d) * rad, q = 280.459 + 0.98564736 * d;
+    var L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, e = (23.439 - 0.00000036 * d) * rad;
+    var dec = Math.asin(Math.sin(e) * Math.sin(L));
+    var ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)) / rad;
+    var gmst = (18.697374558 + 24.06570982441908 * d) % 24;
+    var ha = ((gmst * 15 + lon - ra) % 360) * rad;
+    return Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(ha)) / rad;
+  }
+  function move(lat, lon, bearing, metres) {
+    var b = bearing * Math.PI / 180;
+    return [lat + metres * Math.cos(b) / 111000, lon + metres * Math.sin(b) / (111000 * Math.cos(lat * Math.PI / 180))];
+  }
+  function compass(deg) { return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(((deg % 360) + 360) % 360 / 45) % 8]; }
+  function radarBearings(a) {
+    if (!a.arrow || a.heading == null || !(a.heading in HEADING_DEG)) return [];
+    var h = HEADING_DEG[a.heading];
+    if (a.arrow === "ahead") return [h];
+    if (a.arrow === "behind") return [h + 180];
+    return [h + 90, h - 90];
+  }
+
+  function metres(aLat, aLon, bLat, bLon) {
+    var x = (bLon - aLon) * 111320 * Math.cos((aLat + bLat) / 2 * Math.PI / 180), y = (bLat - aLat) * 110574;
+    return Math.sqrt(x * x + y * y);
+  }
+  function bearingTo(aLat, aLon, bLat, bLon) {
+    var x = (bLon - aLon) * Math.cos((aLat + bLat) / 2 * Math.PI / 180), y = bLat - aLat;
+    return (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+  }
+  function angleOff(a, b) { var d = Math.abs(((a - b) % 360 + 360) % 360); return d > 180 ? 360 - d : d; }
+  function feetText(m) {
+    var mi = m / 1609.34;
+    return mi < 0.1 ? Math.max(50, Math.round(m * 3.281 / 50) * 50) + " ft" : (mi < 10 ? mi.toFixed(1) : Math.round(mi)) + " mi";
+  }
+  function feetSpeech(m) {
+    var mi = m / 1609.34;
+    if (mi < 0.1) return Math.max(50, Math.round(m * 3.281 / 50) * 50) + " feet";
+    if (Math.abs(mi - 0.25) < 0.05) return "a quarter mile";
+    if (Math.abs(mi - 0.5) < 0.06) return "half a mile";
+    return mi.toFixed(1) + " miles";
+  }
 
   // ---------- data ----------
-  var all = [];
-  var fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", year: "numeric" });
-  var fmtTime = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit", second: "2-digit" });
-  var fmtKey = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
-
+  var all = [], tracks = [], zones = [], health = null;
   function prep(raw) {
     return raw.map(function (a, i) {
       var d = new Date(a.t.replace(" ", "T") + "Z");
       return Object.assign({}, a, {
-        id: i, date: d, dayKey: fmtKey.format(d), dayLabel: fmtDay.format(d), time: fmtTime.format(d),
-        isFalse: a.status !== "Valid", band: a.band || "?"
+        id: i, date: d, dayKey: fmtKey.format(d), dayLabel: fmtDay.format(d), time: fmtTime.format(d), timeS: fmtTimeS.format(d),
+        hour: +fmtHour.format(d) % 24, wd: fmtWd.format(d), isFalse: a.status !== "Valid", band: a.band || "?",
+        night: sunAltitude(d, a.lat, a.lon) < -0.8
       });
-    }).sort(function (x, y) { return y.date - x.date; });
+    }).sort(function (x, y) { return x.date - y.date; });
+  }
+  function cellOf(a) { return Math.round(a.lat / 0.0016) + "_" + Math.round(a.lon / 0.0021); }   // ~175 m squares
+
+  function buildZones() {
+    var cells = {};
+    all.forEach(function (a) {
+      if (a.isFalse) return;
+      var c = cells[cellOf(a)] || (cells[cellOf(a)] = { key: cellOf(a), alerts: [], days: {} });
+      c.alerts.push(a); c.days[a.dayKey] = 1;
+    });
+    zones = Object.keys(cells).map(function (k) {
+      var c = cells[k], n = c.alerts.length;
+      c.lat = c.alerts.reduce(function (s, a) { return s + a.lat; }, 0) / n;
+      c.lon = c.alerts.reduce(function (s, a) { return s + a.lon; }, 0) / n;
+      c.nDays = Object.keys(c.days).length;
+      c.ka = c.alerts.filter(function (a) { return a.band === "Ka"; }).length;
+      c.k = c.alerts.filter(function (a) { return a.band === "K"; }).length;
+      // one long split alert (many rows a few seconds apart) counts once per minute, so it can't top the list alone
+      var mins = {}; c.alerts.forEach(function (a) { mins[a.dayKey + Math.floor(a.date / 60000)] = 1; });
+      c.events = Object.keys(mins).length;
+      c.score = c.events + 3 * (c.nDays - 1) + 0.5 * c.ka;
+      return c;
+    }).sort(function (a, b) { return b.score - a.score; });
+    var conf = {};
+    zones.forEach(function (z) { if (z.nDays >= 2) conf[z.key] = 1; });
+    all.forEach(function (a) { a.confirmed = !!conf[cellOf(a)]; });
   }
 
-  function color(a) {
-    if (a.isFalse) return tok("--false");
-    return { Ka: tok("--ka"), K: tok("--k"), X: tok("--x") }[a.band] || tok("--false");
+  // the same exact frequency again near the same place, on another occasion: probably the same radar unit
+  function findSameRadar() {
+    var real = all.filter(function (a) { return !a.isFalse && a.freq && (a.band === "Ka" || a.band === "K" || a.band === "X"); });
+    real.forEach(function (a) {
+      a.twins = real.filter(function (b) {
+        return b !== a && b.band === a.band && Math.abs(b.freq - a.freq) <= 0.005 &&
+          Math.abs(b.date - a.date) > 10 * 60000 && metres(a.lat, a.lon, b.lat, b.lon) <= 400;
+      });
+      // one long alert split into rows counts once
+      var seen = {}; a.twins = a.twins.filter(function (b) { var k = b.dayKey + Math.floor(b.date / 600000); if (seen[k]) return false; seen[k] = 1; return true; });
+    });
   }
 
-  function shown() {
+  function shown(ignoreReplay) {
     return all.filter(function (a) {
       if (a.isFalse && !state.showFalse) return false;
       if (state.band !== "all" && a.band !== state.band) return false;
       if (state.day !== "all" && a.dayKey !== state.day) return false;
+      if (state.light === "day" && a.night) return false;
+      if (state.light === "night" && !a.night) return false;
+      if (state.confirmedOnly && !a.confirmed) return false;
+      if (!ignoreReplay && state.replayUntil != null && a.date > state.replayUntil) return false;
       return true;
     });
   }
 
-  var REASONS = { muted: "Q-Ride", repeat_K: "same spot many days", known_spot: "known false spot" };
-  function why(a) { return a.reason ? " (" + esc(REASONS[a.reason] || a.reason) + ")" : ""; }
-
-  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-
-  // ---------- draw ----------
-  function draw(fit) {
-    var rows = shown();
+  // ---------- gauges ----------
+  function gauge(value, max, label, col) {
+    var r = 26, c = 2 * Math.PI * r, sweep = 0.75, frac = max ? Math.min(1, value / max) : 0;
+    var arc = c * sweep;
+    return '<div class="gauge"><svg viewBox="0 0 72 66" role="img" aria-label="' + esc(label) + ': ' + value + '">' +
+      '<circle cx="36" cy="36" r="' + r + '" fill="none" stroke="' + COLORS.line + '" stroke-width="6" stroke-linecap="round"' +
+      ' stroke-dasharray="' + arc + ' ' + c + '" transform="rotate(135 36 36)"/>' +
+      '<circle cx="36" cy="36" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="6" stroke-linecap="round"' +
+      ' stroke-dasharray="' + (arc * frac) + ' ' + c + '" transform="rotate(135 36 36)" style="filter:drop-shadow(0 0 4px ' + col + ')"/>' +
+      '<text x="36" y="42" text-anchor="middle" fill="' + COLORS.ink + '" font-family="Share Tech Mono, monospace" font-size="19">' + value + '</text>' +
+      '</svg><div class="lbl">' + esc(label) + '</div></div>';
+  }
+  function drawCluster(rows) {
     var real = rows.filter(function (a) { return !a.isFalse; });
-    document.getElementById("sAll").textContent = real.length;
-    document.getElementById("sKa").textContent = real.filter(function (a) { return a.band === "Ka"; }).length;
-    document.getElementById("sK").textContent = real.filter(function (a) { return a.band === "K"; }).length;
-    document.getElementById("sDays").textContent = new Set(real.map(function (a) { return a.dayKey; })).size;
-
-    if (heat) { map.removeLayer(heat); heat = null; }
-    dots.clearLayers();
-    if (state.view !== "dots" && real.length) {
-      heat = L.heatLayer(real.map(function (a) { return [a.lat, a.lon, 1]; }), {
-        radius: 26, blur: 20, minOpacity: 0.35, max: 4,
-        gradient: { 0.25: "#2E9E6B", 0.5: "#F2C200", 0.75: "#E36A1A", 1: "#C8372D" }
-      }).addTo(map);
-    }
-    if (state.view !== "heat") {
-      rows.slice().reverse().forEach(function (a) {
-        var m = L.circleMarker([a.lat, a.lon], {
-          radius: a.isFalse ? 5 : 7, weight: 2, color: "#fff",
-          fillColor: color(a), fillOpacity: a.isFalse ? 0.55 : 0.95
-        });
-        m.on("click", function () { select(a, false); });
-        m.bindTooltip(a.band + " " + (a.freq || "") + " · " + a.time, { direction: "top" });
-        m.addTo(dots);
-      });
-    }
-    drawList(rows);
-    if (fit && rows.length) {
-      map.fitBounds(L.latLngBounds(rows.map(function (a) { return [a.lat, a.lon]; })), { padding: [40, 40], maxZoom: 15 });
-    }
+    var ka = real.filter(function (a) { return a.band === "Ka"; }).length, k = real.filter(function (a) { return a.band === "K"; }).length;
+    var days = new Set(real.map(function (a) { return a.dayKey; })).size;
+    var conf = new Set(real.filter(function (a) { return a.confirmed; }).map(cellOf)).size;
+    var top = Math.max(10, Math.ceil(all.filter(function (a) { return !a.isFalse; }).length / 10) * 10);
+    $("cluster").innerHTML = gauge(real.length, top, "Alerts", COLORS.needle) + gauge(ka, top, "Ka", COLORS.Ka) +
+      gauge(k, top, "K", COLORS.K) + gauge(days, Math.max(5, days), "Drives", "#9B8CFF") + gauge(conf, Math.max(5, conf), "Confirmed", "#3FCF7A");
   }
 
+  // ---------- map ----------
+  var map = L.map("map", { zoomControl: true, preferCanvas: false }).setView([42.38, -83.1], 12);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, className: "tiles-dark",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  L.control.scale({ imperial: true, metric: false }).addTo(map);
+  var heat = null, spotLayer = L.layerGroup().addTo(map), coneLayer = L.layerGroup().addTo(map),
+      pathLayer = L.layerGroup().addTo(map), ringLayer = L.layerGroup().addTo(map);
+
+  function carIcon(a, big) {
+    var col = color(a), s = big ? 34 : 26;
+    var rot = (a.heading in HEADING_DEG) ? HEADING_DEG[a.heading] : null;
+    var shape = rot == null
+      ? '<circle cx="13" cy="13" r="6.5" fill="' + col + '" stroke="#0B0E10" stroke-width="2"/>'
+      : '<g transform="rotate(' + rot + ' 13 13)"><path d="M13 2 L21 22 L13 17.5 L5 22 Z" fill="' + col + '" stroke="#0B0E10" stroke-width="1.6" stroke-linejoin="round"/></g>';
+    return L.divIcon({ className: "carpin", iconSize: [s, s], iconAnchor: [s / 2, s / 2],
+      html: '<svg width="' + s + '" height="' + s + '" viewBox="0 0 26 26">' + (a.confirmed && !a.isFalse ? '<circle cx="13" cy="13" r="12" fill="none" stroke="#3FCF7A" stroke-width="1.4" stroke-dasharray="3 2"/>' : "") + shape + '</svg>' });
+  }
+  function cone(a, bearing) {
+    var pts = [[a.lat, a.lon]];
+    for (var d = -28; d <= 28; d += 7) pts.push(move(a.lat, a.lon, bearing + d, 320));
+    return L.polygon(pts, { stroke: false, fillColor: color(a), fillOpacity: 0.16, interactive: false });
+  }
+
+  function draw(fit) {
+    var rows = shown();
+    drawCluster(rows);
+    var real = rows.filter(function (a) { return !a.isFalse; });
+    if (heat) { map.removeLayer(heat); heat = null; }
+    spotLayer.clearLayers(); coneLayer.clearLayers(); pathLayer.clearLayers(); ringLayer.clearLayers();
+    if (state.layers.path && tracks.length && state.replayUntil == null) {
+      tracks.forEach(function (line) { L.polyline(line, { color: COLORS.needle, weight: 2.5, opacity: 0.45, interactive: false }).addTo(pathLayer); });
+    }
+    if (state.layers.heat && real.length) {
+      heat = L.heatLayer(real.map(function (a) { return [a.lat, a.lon, 1]; }), {
+        radius: 28, blur: 22, minOpacity: 0.35, max: 4,
+        gradient: { 0.25: "#2E9E6B", 0.5: "#F2C200", 0.75: "#E36A1A", 1: "#FF4D3D" }
+      }).addTo(map);
+    }
+    if (state.layers.cones) real.forEach(function (a) { radarBearings(a).forEach(function (b) { cone(a, b).addTo(coneLayer); }); });
+    if (state.layers.spots) rows.forEach(function (a) {
+      var m = L.marker([a.lat, a.lon], { icon: carIcon(a, state.selected === a.id), zIndexOffset: a.isFalse ? -100 : (a.band === "Ka" ? 100 : 0), keyboard: false });
+      m.on("click", function () { select(a, false); });
+      m.bindTooltip(a.band + " " + (a.freq || "") + " · " + a.time, { direction: "top", offset: [0, -10] });
+      m.addTo(spotLayer);
+    });
+    var sel = state.selected != null && all.find(function (a) { return a.id === state.selected; });
+    if (sel && sel.twins && sel.twins.length) sel.twins.forEach(function (b) {
+      L.polyline([[sel.lat, sel.lon], [b.lat, b.lon]], { color: color(sel), weight: 2, dashArray: "4 6", opacity: 0.9, interactive: false }).addTo(ringLayer);
+      L.circleMarker([b.lat, b.lon], { radius: 14, color: color(sel), weight: 2, fill: false, interactive: false }).addTo(ringLayer);
+    });
+    if (sel && sel.peak && state.peakFor === sel.id) {
+      var pk = [sel.peak[0], sel.peak[1]];
+      L.polyline([[sel.lat, sel.lon], pk], { color: COLORS.needle, weight: 2, dashArray: "2 5", interactive: false }).addTo(ringLayer);
+      L.marker(pk, { interactive: false, keyboard: false, zIndexOffset: 500, icon: L.divIcon({ className: "peakpin", iconSize: [44, 44], iconAnchor: [22, 22],
+        html: '<svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" fill="none" stroke="' + COLORS.needle + '" stroke-width="2"/>' +
+              '<circle cx="22" cy="22" r="11" fill="none" stroke="' + COLORS.needle + '" stroke-width="2"/><circle cx="22" cy="22" r="4" fill="' + COLORS.needle + '"/></svg>' }) }).addTo(ringLayer);
+    }
+    drawList(rows);
+    if (fit && rows.length) map.fitBounds(L.latLngBounds(rows.map(function (a) { return [a.lat, a.lon]; })), { padding: [50, 50], maxZoom: 15 });
+    if (state.view === "stats") drawCharts();
+    if (state.view === "photos") drawWall();
+  }
+
+  // ---------- lists ----------
+  var zoneNames = {};
+  function zoneLabel(z, i) { return zoneNames[z.key] || ("Zone " + (i + 1)); }
   function drawList(rows) {
-    var el = document.getElementById("list");
+    var el = $("list");
+    if (state.list === "zones") {
+      var ids = new Set(rows.filter(function (a) { return !a.isFalse; }).map(function (a) { return a.id; }));
+      var zs = zones.map(function (z, i) {
+        var hits = z.alerts.filter(function (a) { return ids.has(a.id); });
+        return { z: z, i: i, n: hits.length };
+      }).filter(function (o) { return o.n; }).slice(0, 5);
+      if (!zs.length) { el.innerHTML = '<p class="empty">No slow-down zones match these filters.</p>'; return; }
+      el.innerHTML = zs.map(function (o, r) {
+        var z = o.z;
+        return '<button class="zone" data-zone="' + o.i + '"><span class="rank">' + (r + 1) + '</span><span><span class="nm">' + esc(zoneLabel(z, o.i)) + '</span>' +
+          (z.nDays >= 2 ? ' <span class="badge">Confirmed</span>' : "") + '<br><span class="s">' +
+          (z.ka ? z.ka + " Ka" : "") + (z.ka && z.k ? " · " : "") + (z.k ? z.k + " K" : "") + " · seen on " + z.nDays + " drive" + (z.nDays > 1 ? "s" : "") +
+          '</span></span><span class="n">' + o.n + '</span></button>';
+      }).join("");
+      return;
+    }
     if (!rows.length) { el.innerHTML = '<p class="empty">No alerts match these filters.</p>'; return; }
     var html = "", lastDay = "";
-    rows.forEach(function (a) {
+    rows.slice().reverse().forEach(function (a) {
       if (a.dayKey !== lastDay) { html += '<div class="day">' + esc(a.dayLabel) + "</div>"; lastDay = a.dayKey; }
-      var cls = a.isFalse ? "false" : (a.band === "?" ? "q" : a.band);
+      var sub = a.isFalse ? "False alert" + why(a)
+        : [a.len != null ? a.len + " s" : "", a.arrow ? ARROW_TEXT[a.arrow].toLowerCase().replace("of me", "").replace("me", "").trim() : "", a.heading ? "heading " + a.heading : "", a.night ? "☾" : "☀"].filter(Boolean).join(" · ");
       html += '<button class="item' + (a.isFalse ? " false" : "") + (state.selected === a.id ? " on" : "") + '" data-id="' + a.id + '">' +
-        '<span class="pill ' + esc(cls) + '">' + esc(a.band) + "</span>" +
-        '<span><span class="f">' + esc(a.freq || "?") + ' GHz</span><br><span class="s">' +
-        (a.isFalse ? "False alert" + why(a) : (a.len != null ? a.len + " s long" : "") + (a.mph != null ? " · " + a.mph + " mph" : "")) +
-        '</span></span><span class="tm">' + esc(a.time) + "</span></button>";
+        '<span class="pill ' + esc(cls(a)) + '">' + esc(a.band) + "</span>" +
+        '<span><span class="f">' + esc(a.freq || "?") + '</span> <span class="s">GHz</span><br><span class="s">' + sub + '</span></span>' +
+        '<span class="tm">' + esc(a.time) + "</span></button>";
     });
     el.innerHTML = html;
   }
 
+  // ---------- detail card ----------
   function bars(n) {
     var h = "";
     for (var i = 1; i <= 8; i++) h += '<i class="' + (i <= n ? "on" : "") + '" style="height:' + (4 + i * 1.25) + 'px"></i>';
     return '<span class="bars" aria-hidden="true">' + h + "</span>";
   }
-
+  function dial(a) {
+    var h = HEADING_DEG[a.heading], bs = radarBearings(a), col = color(a), s = "";
+    s += '<circle cx="48" cy="48" r="40" fill="#0B0E10" stroke="' + COLORS.line + '" stroke-width="2"/>';
+    for (var t = 0; t < 360; t += 45) {
+      var p1 = move(0, 0, t, 0), x1 = 48 + 34 * Math.sin(t * Math.PI / 180), y1 = 48 - 34 * Math.cos(t * Math.PI / 180),
+          x2 = 48 + 39 * Math.sin(t * Math.PI / 180), y2 = 48 - 39 * Math.cos(t * Math.PI / 180);
+      s += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + COLORS.muted + '" stroke-width="' + (t % 90 ? 1 : 2) + '"/>';
+    }
+    ["N", "E", "S", "W"].forEach(function (c, i) {
+      var t = i * 90 * Math.PI / 180;
+      s += '<text x="' + (48 + 26 * Math.sin(t)) + '" y="' + (52 - 26 * Math.cos(t)) + '" text-anchor="middle" font-size="10" font-family="Saira Semi Condensed, sans-serif" fill="' + (c === "N" ? COLORS.Ka : COLORS.muted) + '">' + c + '</text>';
+    });
+    bs.forEach(function (b) {
+      var r = b * Math.PI / 180, w = 0.45;
+      s += '<path d="M48 48 L' + (48 + 40 * Math.sin(r - w)) + ' ' + (48 - 40 * Math.cos(r - w)) + ' A40 40 0 0 1 ' + (48 + 40 * Math.sin(r + w)) + ' ' + (48 - 40 * Math.cos(r + w)) + ' Z" fill="' + col + '" fill-opacity=".35"/>';
+    });
+    if (h != null) s += '<g transform="rotate(' + h + ' 48 48)"><path d="M48 30 L56 58 L48 53 L40 58 Z" fill="' + COLORS.needle + '"/></g>';
+    return '<svg viewBox="0 0 96 96" role="img" aria-label="Compass">' + s + '</svg>';
+  }
+  function sparkline(sig, top) {
+    var W = 300, H = 46, n = sig.length, max = Math.max(8, top || 0), s = "", peakI = sig.indexOf(Math.max.apply(null, sig));
+    var pts = sig.map(function (v, i) { return (n === 1 ? W / 2 : i * W / (n - 1)).toFixed(1) + "," + (H - 4 - (H - 10) * v / max).toFixed(1); });
+    s += '<polyline points="0,' + (H - 4) + " " + pts.join(" ") + " " + W + "," + (H - 4) + '" fill="rgba(79,209,222,.15)" stroke="none"/>';
+    s += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="' + COLORS.needle + '" stroke-width="2" stroke-linejoin="round"/>';
+    var p = pts[peakI].split(",");
+    s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4" fill="' + COLORS.needle + '"/>';
+    return '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="none" role="img" aria-label="Signal bars during the alert, peak ' + sig[peakI] + '">' + s + "</svg>";
+  }
   function select(a, fly) {
+    if (state.selected !== a.id) state.peakFor = null;
     state.selected = a.id;
-    var card = document.getElementById("card");
-    var cls = a.isFalse ? "false" : (a.band === "?" ? "q" : a.band);
+    var bs = radarBearings(a);
+    var dirTitle = a.arrow ? ARROW_TEXT[a.arrow] : "Direction not read";
+    var dirSub = bs.length === 1 ? "Radar from the " + compass(bs[0]) + (a.heading ? ", while heading " + a.heading : "")
+      : bs.length === 2 ? "Radar from the " + compass(bs[0]) + " or " + compass(bs[1]) + " side, heading " + a.heading
+      : a.heading ? "Heading " + a.heading : "The R7 screen was showing another page";
+    var card = $("card");
     card.innerHTML =
       '<button class="close" id="cardClose" aria-label="Close">×</button>' +
       (a.photo ? '<a href="' + esc(a.photo) + '" target="_blank" rel="noopener"><img src="' + esc(a.photo) + '" alt="R7 screen during this alert: ' + esc(a.band) + " " + esc(a.freq) + ' GHz"></a>'
                : '<div class="noimg">No photo for this alert</div>') +
       '<div class="body">' +
-        '<div class="readout"><span class="pill ' + esc(cls) + '">' + esc(a.band) + '</span><span class="fq">' + esc(a.freq || "?") + ' <small>GHz</small></span></div>' +
+        '<div class="readout"><span class="pill ' + esc(cls(a)) + '">' + esc(a.band) + '</span><span class="fq ' + esc(a.band) + '">' + esc(a.freq || "?") + ' <small>GHz</small></span>' +
+          (a.confirmed && !a.isFalse ? ' <span class="badge">Confirmed spot</span>' : "") + '</div>' +
+        '<div class="dirrow">' + dial(a) + '<div><b>' + esc(dirTitle) + '</b><span>' + esc(dirSub) + '</span></div></div>' +
         '<dl class="kv">' +
-          "<div><dt>When</dt><dd>" + esc(a.time) + "</dd></div>" +
-          "<div><dt>Day</dt><dd>" + esc(a.dayLabel.replace(/, \d{4}$/, "")) + "</dd></div>" +
+          "<div><dt>When</dt><dd>" + esc(a.timeS) + "</dd></div>" +
+          "<div><dt>Day</dt><dd>" + esc(a.dayLabel) + (a.night ? " ☾" : " ☀") + "</dd></div>" +
           "<div><dt>Alert length</dt><dd>" + (a.len != null ? a.len + " s" : "–") + "</dd></div>" +
-          "<div><dt>My speed</dt><dd>" + (a.mph != null ? a.mph + " mph" : "–") + "</dd></div>" +
-          "<div><dt>Signal</dt><dd>" + (a.bars != null ? bars(a.bars) + a.bars + " bars" : "–") + "</dd></div>" +
+          "<div><dt>Signal</dt><dd>" + (a.bars != null ? bars(a.bars) + a.bars : "–") + "</dd></div>" +
           "<div><dt>Status</dt><dd>" + (a.isFalse ? "False alert" + why(a) : "Real alert") + "</dd></div>" +
+          "<div><dt>Light</dt><dd>" + (a.night ? "Dark" : "Daylight") + "</dd></div>" +
         "</dl>" +
-        (a.reason && !a.isFalse ? '<p class="note">Logged ' + esc(a.reason) + " alert.</p>" : "") +
-        '<p class="note">Tap the photo to see it full size.</p>' +
+        (a.sig && a.sig.length > 1 ? '<div class="sig"><p class="secttl">Signal during the alert</p>' + sparkline(a.sig) +
+          (a.peak ? '<button class="optbtn" id="peakBtn" aria-pressed="' + (state.peakFor === a.id) + '">◎ Show where the signal peaked</button>' +
+            (state.peakFor === a.id ? '<p class="note">Strongest reading (' + a.peak[2] + ' bars) was ' + feetText(metres(a.lat, a.lon, a.peak[0], a.peak[1])) +
+              ' from where the alert started. The radar was most likely near the ◎.</p>' : "") : "") + "</div>" : "") +
+        (a.twins && a.twins.length ? '<div class="sig"><p class="secttl">Same radar again · seen ' + (a.twins.length + 1) + ' times</p>' +
+          '<ul class="twins">' + a.twins.map(function (b) {
+            return '<li><button data-twin="' + b.id + '"><span>' + esc(b.dayLabel) + " · " + esc(b.time) + '</span><b>' + esc(b.freq) + "</b></button></li>";
+          }).join("") + '</ul><p class="note">Same exact frequency within 400 m, at another time. Most likely the same radar unit.</p></div>' : "") +
+        '<p class="note">Tap the photo to open it full size. My speed is blacked out.</p>' +
       "</div>";
     card.hidden = false;
-    document.getElementById("cardClose").onclick = function () { card.hidden = true; state.selected = null; drawList(shown()); };
-    if (fly) map.flyTo([a.lat, a.lon], Math.max(map.getZoom(), 15), { duration: 0.6 });
+    $("cardClose").onclick = function () { card.hidden = true; state.selected = null; state.peakFor = null; draw(false); };
+    if ($("peakBtn")) $("peakBtn").onclick = function () {
+      state.peakFor = state.peakFor === a.id ? null : a.id; select(a, false);
+      if (state.peakFor !== a.id) return;
+      // keep both points clear of the card: beside it on a computer, above it on a phone
+      var phone = window.innerWidth <= 860, c = $("card");
+      map.fitBounds(L.latLngBounds([[a.lat, a.lon], [a.peak[0], a.peak[1]]]), { maxZoom: 17,
+        paddingTopLeft: [60, 60], paddingBottomRight: phone ? [60, c.offsetHeight + 40] : [c.offsetWidth + 60, 60] });
+    };
+    card.querySelectorAll("[data-twin]").forEach(function (b) { b.onclick = function () { openAlert(+b.dataset.twin); }; });
+    if (fly) map.flyTo([a.lat, a.lon], Math.max(map.getZoom(), 15), { duration: 0.7 });
+    draw(false);
+  }
+
+  // ---------- charts (also saved as pictures for the poster) ----------
+  function svgBars(items, opts) {
+    // items: [{label, parts:[{v, color}]}]
+    var W = 640, H = opts.h || 280, padL = 40, padB = 44, padT = 14, padR = 10;
+    var max = Math.max(1, Math.max.apply(null, items.map(function (it) { return it.parts.reduce(function (s, p) { return s + p.v; }, 0); })));
+    var step = max <= 5 ? 1 : max <= 12 ? 2 : Math.ceil(max / 5);
+    max = Math.ceil(max / step) * step;
+    var bw = (W - padL - padR) / items.length, s = "";
+    for (var v = 0; v <= max; v += step) {
+      var y = H - padB - (H - padB - padT) * v / max;
+      s += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y + '" y2="' + y + '" stroke="' + COLORS.line + '"/>' +
+           '<text x="' + (padL - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="15" fill="' + COLORS.muted + '">' + v + '</text>';
+    }
+    items.forEach(function (it, i) {
+      var y = H - padB, x = padL + i * bw + bw * 0.15;
+      it.parts.forEach(function (p) {
+        var h = (H - padB - padT) * p.v / max;
+        if (h > 0) s += '<rect x="' + x + '" y="' + (y - h) + '" width="' + (bw * 0.7) + '" height="' + h + '" rx="2" fill="' + p.color + '"/>';
+        y -= h;
+      });
+      if (!opts.every || i % opts.every === 0)
+        s += '<text x="' + (padL + i * bw + bw / 2) + '" y="' + (H - padB + 20) + '" text-anchor="middle" font-size="15" fill="' + COLORS.muted + '">' + esc(it.label) + '</text>';
+    });
+    if (opts.xlabel) s += '<text x="' + ((W + padL) / 2) + '" y="' + (H - 2) + '" text-anchor="middle" font-size="14" fill="' + COLORS.muted + '">' + esc(opts.xlabel) + '</text>';
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-family="Saira, sans-serif">' + s + '</svg>';
+  }
+  function svgHBars(items) {
+    var W = 640, rowH = 34, H = Math.max(60, items.length * rowH + 16), padL = 104, padR = 40, s = "";
+    var max = Math.max(1, Math.max.apply(null, items.map(function (it) { return it.v; })));
+    items.forEach(function (it, i) {
+      var y = 8 + i * rowH, w = (W - padL - padR) * it.v / max;
+      s += '<text x="' + (padL - 8) + '" y="' + (y + 21) + '" text-anchor="end" font-size="18" font-family="Share Tech Mono, monospace" fill="' + COLORS.ink + '">' + esc(it.label) + '</text>' +
+           '<rect x="' + padL + '" y="' + (y + 4) + '" width="' + Math.max(2, w) + '" height="' + (rowH - 10) + '" rx="3" fill="' + it.color + '"/>' +
+           '<text x="' + (padL + w + 6) + '" y="' + (y + 21) + '" font-size="16" fill="' + COLORS.muted + '">' + it.v + '</text>';
+    });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-family="Saira, sans-serif">' + s + '</svg>';
+  }
+  function svgDonut(parts) {
+    var W = 640, H = 240, cx = 120, cy = 120, r = 86, t = 0, total = parts.reduce(function (s, p) { return s + p.v; }, 0) || 1, s = "";
+    parts.forEach(function (p) {
+      if (!p.v) return;
+      var a0 = t / total * 2 * Math.PI, a1 = (t + p.v) / total * 2 * Math.PI; t += p.v;
+      var large = a1 - a0 > Math.PI ? 1 : 0;
+      if (p.v === total) s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + p.color + '" stroke-width="30"/>';
+      else s += '<path d="M' + (cx + r * Math.sin(a0)) + ' ' + (cy - r * Math.cos(a0)) + ' A' + r + ' ' + r + ' 0 ' + large + ' 1 ' + (cx + r * Math.sin(a1)) + ' ' + (cy - r * Math.cos(a1)) + '" fill="none" stroke="' + p.color + '" stroke-width="30"/>';
+    });
+    s += '<text x="' + cx + '" y="' + (cy + 10) + '" text-anchor="middle" font-size="30" font-family="Share Tech Mono, monospace" fill="' + COLORS.ink + '">' + (total === 1 && !parts.some(function (p) { return p.v; }) ? 0 : total) + '</text>';
+    parts.forEach(function (p, i) {
+      var y = 70 + i * 34;
+      s += '<rect x="270" y="' + (y - 13) + '" width="16" height="16" rx="3" fill="' + p.color + '"/>' +
+           '<text x="296" y="' + y + '" font-size="19" fill="' + COLORS.ink + '">' + esc(p.label) + '</text>' +
+           '<text x="600" y="' + y + '" text-anchor="end" font-size="19" font-family="Share Tech Mono, monospace" fill="' + COLORS.muted + '">' + p.v + " (" + Math.round(p.v / total * 100) + '%)</text>';
+    });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" font-family="Saira, sans-serif">' + s + '</svg>';
+  }
+  function panel(id, title, sub, svg) {
+    return '<section class="panel chart"><header><div><h3>' + esc(title) + '</h3><p>' + esc(sub) + '</p></div>' +
+      '<button class="btn" data-save="' + id + '" data-title="' + esc(title) + '">⤓ PNG</button></header><div id="' + id + '">' + svg + '</div></section>';
+  }
+  function tile(k, v, d, cls) {
+    return '<div class="tile' + (cls ? " " + cls : "") + '"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div>' + (d ? '<div class="d">' + d + "</div>" : "") + "</div>";
+  }
+  function ago(date) {
+    var m = Math.round((Date.now() - date) / 60000);
+    return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago";
+  }
+  function drawWeek() {
+    // Monday-to-Sunday weeks, Detroit time
+    var today = fmtKey.format(new Date()), wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(fmtWd.format(new Date()));
+    function shift(key, days) { var d = new Date(key + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
+    var mon = shift(today, -wd), lastMon = shift(mon, -7);
+    var real = all.filter(function (a) { return !a.isFalse; });
+    var tw = real.filter(function (a) { return a.dayKey >= mon; }), lw = real.filter(function (a) { return a.dayKey >= lastMon && a.dayKey < mon; });
+    function cmp(n, m) {
+      if (!m && !n) return "same as last week";
+      var diff = n - m;
+      return diff === 0 ? "same as last week" : (diff > 0 ? "▲ " : "▼ ") + Math.abs(diff) + " vs last week (" + m + ")";
+    }
+    function count(list, b) { return list.filter(function (a) { return a.band === b; }).length; }
+    function drives(list) { return new Set(list.map(function (a) { return a.dayKey; })).size; }
+    var newSpots = zones.filter(function (z) { return z.alerts.every(function (a) { return a.dayKey >= mon; }); }).length;
+    $("weekSpan").textContent = "Week of " + fmtDay.format(new Date(mon + "T12:00:00Z")).replace(/^\w+, /, "");
+    $("week").innerHTML = tile("Real alerts", tw.length, cmp(tw.length, lw.length)) + tile("Ka", count(tw, "Ka"), cmp(count(tw, "Ka"), count(lw, "Ka"))) +
+      tile("K", count(tw, "K"), cmp(count(tw, "K"), count(lw, "K"))) + tile("Drive days", drives(tw), cmp(drives(tw), drives(lw))) +
+      tile("New spots found", newSpots, "places first seen this week");
+  }
+  function drawPi() {
+    if (!health) { $("piSpan").textContent = ""; $("pi").innerHTML = '<p class="empty" style="padding:0">The Pi hasn\'t sent its status yet. It will on its next update.</p>'; return; }
+    var seen = new Date(health.seen.replace(" ", "T") + "Z"), m = (Date.now() - seen) / 60000;
+    $("piSpan").textContent = "Sent by the Pi itself";
+    var gps = health.gps_last ? new Date(health.gps_last.replace(" ", "T") + "Z") : null;
+    var t = health.temp_c, disk = health.disk_free_gb;
+    $("pi").innerHTML =
+      tile("Pi last online", ago(seen), fmtDay.format(seen) + ", " + fmtTime.format(seen), m < 40 ? "ok" : "") +
+      tile("Logger", health.logger === "active" ? "Running" : health.logger === "unknown" ? "?" : "Stopped",
+        health.logger === "active" ? "camera is watching the R7" : health.logger === "unknown" ? "couldn't check" : "not running at the last check",
+        health.logger === "active" ? "ok" : health.logger === "unknown" ? "" : "bad") +
+      tile("GPS", gps ? ago(gps) : (health.gps_plugged ? "Plugged in" : "Not found"), gps ? "last position fix while moving" : "no drive path yet",
+        health.gps_plugged || gps ? "ok" : "bad") +
+      tile("Pi temperature", t == null ? "?" : Math.round(t) + "°C", t == null ? "" : Math.round(t * 9 / 5 + 32) + "°F" + (t >= 80 ? ", hot: it slows itself down" : t >= 70 ? ", warm" : ", fine"),
+        t == null ? "" : t >= 80 ? "bad" : t >= 70 ? "warn" : "ok") +
+      tile("Storage free", disk + " GB", health.disk_used_pct + "% of the card used", health.disk_used_pct >= 90 ? "bad" : health.disk_used_pct >= 75 ? "warn" : "ok");
+  }
+  function drawCharts() {
+    drawWeek(); drawPi();
+    var real = shown(true).filter(function (a) { return !a.isFalse; });
+    var bands = state.band === "all" ? ["Ka", "K", "X"] : [state.band];
+    function parts(list) { return bands.map(function (b) { return { v: list.filter(function (a) { return a.band === b; }).length, color: COLORS[b] }; }); }
+    var hours = []; for (var h = 0; h < 24; h++) { (function (h) { hours.push({ label: h === 0 ? "12a" : h < 12 ? h + "a" : h === 12 ? "12p" : (h - 12) + "p", parts: parts(real.filter(function (a) { return a.hour === h; })) }); })(h); }
+    var wds = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(function (d) { return { label: d, parts: parts(real.filter(function (a) { return a.wd === d; })) }; });
+    var fq = {}; real.forEach(function (a) { if (a.freq) { var k = a.band + " " + a.freq; fq[k] = (fq[k] || 0) + 1; } });
+    var fqi = Object.keys(fq).map(function (k) { return { label: k.split(" ")[1], v: fq[k], color: COLORS[k.split(" ")[0]] || COLORS["false"] }; })
+      .sort(function (a, b) { return b.v - a.v; }).slice(0, 10);
+    var dir = ["ahead", "side", "behind"].map(function (d, i) { return { label: ARROW_TEXT[d], v: real.filter(function (a) { return a.arrow === d; }).length, color: [COLORS.needle, "#9B8CFF", COLORS.muted][i] }; });
+    var light = [{ label: "Daylight", v: real.filter(function (a) { return !a.night; }).length, color: "#F2C200" }, { label: "Dark", v: real.filter(function (a) { return a.night; }).length, color: "#5A6CFF" }];
+    var allF = shown(true);
+    var filt = [{ label: "Real alerts", v: allF.filter(function (a) { return !a.isFalse; }).length, color: COLORS.go || "#3FCF7A" },
+                { label: "Q-Ride (false)", v: all.filter(function (a) { return a.isFalse && a.reason === "muted"; }).length, color: COLORS["false"] },
+                { label: "Other false", v: all.filter(function (a) { return a.isFalse && a.reason !== "muted"; }).length, color: "#3A4348" }];
+    filt[0].color = "#3FCF7A";
+    $("charts").innerHTML =
+      panel("c-hour", "Alerts by time of day", "Detroit time, stacked by band", svgBars(hours, { every: 3, xlabel: "hour of day" })) +
+      panel("c-fq", "Most-seen frequencies", "GHz, top 10", svgHBars(fqi.length ? fqi : [{ label: "none", v: 0, color: COLORS.line }])) +
+      panel("c-dir", "Where the radar came from", "R7 arrow at the moment of the alert", svgDonut(dir)) +
+      panel("c-light", "Day vs night", "From the sun's position at each alert", svgDonut(light)) +
+      panel("c-wd", "Alerts by day of the week", "Stacked by band", svgBars(wds, {})) +
+      panel("c-filter", "What the filters removed", "All logged alerts, every band", svgDonut(filt));
+  }
+  function savePng(id, title) {
+    var svg = $(id).querySelector("svg"); if (!svg) return;
+    var vb = svg.viewBox.baseVal, scale = 3, W = vb.width, H = vb.height + 44;
+    var clone = svg.cloneNode(true);
+    var xml = new XMLSerializer().serializeToString(clone);
+    var img = new Image();
+    img.onload = function () {
+      var c = document.createElement("canvas"); c.width = W * scale; c.height = H * scale;
+      var g = c.getContext("2d"); g.scale(scale, scale);
+      g.fillStyle = COLORS.panel; g.fillRect(0, 0, W, H);
+      g.fillStyle = COLORS.ink; g.font = "600 20px 'Saira Semi Condensed', sans-serif"; g.fillText(title, 12, 28);
+      g.drawImage(img, 0, 44, W, vb.height);
+      c.toBlob(function (b) { download(b, title.toLowerCase().replace(/[^a-z0-9]+/g, "_") + ".png"); });
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  }
+  function download(blob, name) {
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  // ---------- photo wall ----------
+  function drawWall() {
+    var rows = shown(true).filter(function (a) { return a.photo; }).slice().reverse();
+    $("wall").innerHTML = rows.length ? rows.map(function (a) {
+      return '<button class="shot" data-id="' + a.id + '"><img loading="lazy" src="' + esc(a.photo) + '" alt="R7 screen, ' + esc(a.band) + " " + esc(a.freq) + ' GHz">' +
+        '<div><span><span class="pill ' + esc(cls(a)) + '" style="padding:3px 6px 2px">' + esc(a.band) + '</span> <b>' + esc(a.freq || "?") + '</b></span><span>' + esc(a.dayLabel) + " · " + esc(a.time) + '</span></div></button>';
+    }).join("") : '<p class="empty">No photos match these filters.</p>';
+  }
+
+  // ---------- replay ----------
+  var replayTimer = null, replayRows = [], replayIdx = 0;
+  function replayStart() {
+    stopShow();
+    replayRows = shown(true).filter(function (a) { return !a.isFalse; });
+    if (!replayRows.length) return;
+    replayIdx = 0; $("replay").hidden = false; $("card").hidden = true;
+    map.fitBounds(L.latLngBounds(replayRows.map(function (a) { return [a.lat, a.lon]; })), { padding: [60, 60], maxZoom: 14 });
+    replayPlay(true);
+  }
+  function replayTick() {
+    if (replayIdx >= replayRows.length) { replayPlay(false); return; }
+    var a = replayRows[replayIdx++];
+    state.replayUntil = a.date; draw(false);
+    $("replayClock").textContent = fmtTime.format(a.date);
+    $("replayMeta").textContent = a.dayLabel + " · " + a.band + " " + (a.freq || "") + " · " + replayIdx + "/" + replayRows.length;
+    var pulse = L.circleMarker([a.lat, a.lon], { radius: 6, color: color(a), weight: 3, fill: false }).addTo(map);
+    var r = 6, iv = setInterval(function () { r += 3; pulse.setRadius(r); pulse.setStyle({ opacity: Math.max(0, 1 - r / 40) }); if (r > 40) { clearInterval(iv); map.removeLayer(pulse); } }, 30);
+  }
+  function replayPlay(on) {
+    clearInterval(replayTimer); replayTimer = null;
+    $("replayPlay").textContent = on ? "❚❚" : "▶"; $("replayPlay").setAttribute("aria-label", on ? "Pause" : "Play");
+    if (on) { if (replayIdx >= replayRows.length) replayIdx = 0; replayTick(); replayTimer = setInterval(replayTick, 900); }
+  }
+  function replayStop() { replayPlay(false); state.replayUntil = null; $("replay").hidden = true; draw(false); }
+
+  // ---------- symposium mode: cycle through the hot spots on a big screen ----------
+  var showTimer = null, showIdx = 0;
+  function startShow() {
+    replayStop(); stopShow();
+    document.body.classList.add("show"); $("showbar").hidden = false; setView("map");
+    try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(function () {}); } catch (e) {}
+    setTimeout(function () { map.invalidateSize(); showStep(); }, 300);
+    showTimer = setInterval(showStep, 9000);
+  }
+  function showStep() {
+    var zs = zones.slice(0, 5);
+    if (!zs.length) return;
+    if (showIdx % (zs.length + 1) === zs.length) {          // every round, pull back to the whole map
+      $("card").hidden = true; $("showZone").textContent = all.filter(function (a) { return !a.isFalse; }).length + " real alerts · " + zones.filter(function (z) { return z.nDays >= 2; }).length + " confirmed spots";
+      draw(true);
+    } else {
+      var z = zs[showIdx % (zs.length + 1)], best = z.alerts.slice().sort(function (a, b) { return (b.bars || 0) - (a.bars || 0); })[0];
+      $("showZone").textContent = "#" + (showIdx % (zs.length + 1) + 1) + " slow-down zone: " + zoneLabel(z, zones.indexOf(z)) + " · " + z.alerts.length + " alerts";
+      select(best, false); map.flyTo([z.lat, z.lon], 15, { duration: 1.6 });
+    }
+    showIdx++;
+  }
+  // ---------- timelapse: the map fills in alert by alert, for a screen-recorded video ----------
+  function startLapse() {
+    replayStop(); stopShow();
+    var rows = all.filter(function (a) { return !a.isFalse; });
+    if (!rows.length) return;
+    document.body.classList.add("show"); $("showbar").hidden = false; setView("map"); $("card").hidden = true; state.selected = null;
+    try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(function () {}); } catch (e) {}
+    var i = 0, ka = 0, k = 0;
+    state.replayUntil = new Date(0);
+    setTimeout(function () {
+      map.invalidateSize();
+      map.fitBounds(L.latLngBounds(rows.map(function (a) { return [a.lat, a.lon]; })), { paddingTopLeft: [40, window.innerWidth <= 860 ? 250 : 160], paddingBottomRight: [40, 60], maxZoom: 14, animate: false });
+      $("showZone").textContent = "Starting…"; draw(false);
+      showTimer = setInterval(function () {
+        if (i >= rows.length) {
+          clearInterval(showTimer); showTimer = null; state.replayUntil = null; draw(false);
+          $("showZone").textContent = rows.length + " real alerts · " + ka + " Ka · " + k + " K · " +
+            new Set(rows.map(function (a) { return a.dayKey; })).size + " drive days";
+          return;
+        }
+        var a = rows[i++]; if (a.band === "Ka") ka++; if (a.band === "K") k++;
+        state.replayUntil = a.date; draw(false);
+        $("showZone").textContent = a.dayLabel + " · " + i + " alert" + (i > 1 ? "s" : "") + " · " + ka + " Ka · " + k + " K";
+      }, Math.max(180, Math.min(700, 14000 / rows.length)));   // about 14 seconds whatever the number of alerts
+    }, 400);
+  }
+  function stopShow() {
+    if (!document.body.classList.contains("show")) return;
+    clearInterval(showTimer); showTimer = null; state.replayUntil = null; document.body.classList.remove("show"); $("showbar").hidden = true; draw(false);
+    try { document.fullscreenElement && document.exitFullscreen(); } catch (e) {}
+    setTimeout(function () { map.invalidateSize(); }, 300);
+  }
+
+  // ---------- heads-up mode: phone GPS + voice, "slow-down zone ahead" ----------
+  var hu = { watch: null, said: {}, prev: null, heading: null, lock: null, audio: null };
+  function speak(text) {
+    try {
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text); u.rate = 1; u.lang = "en-US"; speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  function chime() {
+    try {
+      hu.audio = hu.audio || new (window.AudioContext || window.webkitAudioContext)();
+      [880, 1175].forEach(function (f, i) {
+        var o = hu.audio.createOscillator(), g = hu.audio.createGain(), t = hu.audio.currentTime + i * 0.18;
+        o.frequency.value = f; o.connect(g); g.connect(hu.audio.destination);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        o.start(t); o.stop(t + 0.17);
+      });
+    } catch (e) {}
+  }
+  function keepAwake() {
+    if (navigator.wakeLock && !$("drive").hidden) navigator.wakeLock.request("screen").then(function (l) { hu.lock = l; }).catch(function () {});
+  }
+  function driveStart() {
+    replayStop(); stopShow();
+    $("drive").hidden = false; hu.said = {}; hu.prev = null; hu.heading = null;
+    $("drive").className = "drive"; $("dState").textContent = "Finding GPS…"; $("dDist").textContent = ""; $("dWhere").textContent = "Allow location when your phone asks.";
+    chime(); speak("Heads-up mode on. I'll tell you when a slow-down zone is ahead.");
+    keepAwake();
+    if (!navigator.geolocation) { $("dState").textContent = "No GPS"; $("dWhere").textContent = "This browser can't share its location."; return; }
+    hu.watch = navigator.geolocation.watchPosition(onPosition, function (e) {
+      $("dState").textContent = "No location";
+      $("dWhere").textContent = e.code === 1 ? "Location is blocked. Allow it for this site in your browser settings, then try again."
+        : location.protocol === "file:" ? "Open the website link (https) for heads-up mode." : "Can't get a GPS fix yet. Keep the phone where it can see the sky.";
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
+  }
+  function driveStop() {
+    if (hu.watch != null) navigator.geolocation.clearWatch(hu.watch);
+    hu.watch = null; $("drive").hidden = true;
+    try { speechSynthesis.cancel(); } catch (e) {}
+    if (hu.lock) { hu.lock.release().catch(function () {}); hu.lock = null; }
+  }
+  function onPosition(p) {
+    var lat = p.coords.latitude, lon = p.coords.longitude, now = Date.now();
+    // which way am I going: the phone's own heading while moving, or worked out from the last spot
+    if (p.coords.heading != null && !isNaN(p.coords.heading) && (p.coords.speed || 0) > 2) hu.heading = p.coords.heading;
+    else if (hu.prev && metres(hu.prev[0], hu.prev[1], lat, lon) > 20) hu.heading = bearingTo(hu.prev[0], hu.prev[1], lat, lon);
+    if (!hu.prev || metres(hu.prev[0], hu.prev[1], lat, lon) > 20) hu.prev = [lat, lon];
+    var best = null;
+    zones.forEach(function (z, i) {
+      var d = metres(lat, lon, z.lat, z.lon);
+      var ahead = d < 150 || hu.heading == null || angleOff(bearingTo(lat, lon, z.lat, z.lon), hu.heading) < 45;
+      if (ahead && (!best || d < best.d)) best = { z: z, i: i, d: d };
+    });
+    var el = $("drive");
+    if (!best || best.d > 8000) {
+      el.className = "drive"; $("dState").textContent = "All clear"; $("dDist").textContent = "";
+      $("dWhere").textContent = "No known slow-down zones ahead"; $("dInfo").textContent = "GPS ±" + Math.round(p.coords.accuracy * 3.281) + " ft";
+      return;
+    }
+    var z = best.z, name = zoneLabel(z, best.i), conf = z.nDays >= 2;
+    $("dDist").textContent = feetText(best.d);
+    $("dWhere").textContent = name + " · " + (z.ka ? z.ka + " Ka " : "") + (z.k ? z.k + " K " : "") + "· seen on " + z.nDays + " drive" + (z.nDays > 1 ? "s" : "");
+    $("dInfo").textContent = "GPS ±" + Math.round(p.coords.accuracy * 3.281) + " ft" + (hu.heading == null ? " · start driving to know which way is ahead" : " · heading " + compass(hu.heading));
+    if (best.d < 100) { el.className = "drive inzone"; $("dState").textContent = "In the zone: watch your speed"; }
+    else if (best.d < 600) { el.className = "drive near"; $("dState").textContent = (conf ? "Confirmed slow-down zone" : "Slow-down zone") + " ahead"; }
+    else { el.className = "drive"; $("dState").textContent = "Next zone"; }
+    // say it once per zone, then not again for 10 minutes
+    if (best.d < 600 && (!hu.said[z.key] || now - hu.said[z.key] > 600000)) {
+      hu.said[z.key] = now; chime();
+      setTimeout(function () {
+        speak((conf ? "Confirmed slow-down zone" : "Slow-down zone") + " ahead, in " + feetSpeech(best.d) + ". " +
+          (z.ka ? "Ka band radar seen here before." : "Radar seen here before."));
+      }, 450);
+    }
+  }
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") keepAwake(); });
+
+  // ---------- views ----------
+  function setView(v) {
+    if (["map", "stats", "photos", "about"].indexOf(v) < 0) v = "map";
+    state.view = v;
+    ["map", "stats", "photos", "about"].forEach(function (k) { $("v-" + k).hidden = k !== v; });
+    document.querySelectorAll("nav.tabs a").forEach(function (a) { a.toggleAttribute("aria-current", a.dataset.view === v); if (a.dataset.view === v) a.setAttribute("aria-current", "page"); });
+    document.body.classList.toggle("page-mode", v !== "map");
+    if (v === "map") setTimeout(function () { map.invalidateSize(); }, 50);
+    if (v === "stats") drawCharts();
+    if (v === "photos") drawWall();
+  }
+  window.addEventListener("hashchange", function () { setView(location.hash.slice(1)); });
+
+  // ---------- CSV download (no speed) ----------
+  function csv() {
+    var rows = shown(true), head = ["datetime_utc", "local_time", "lat", "lon", "band", "freq_ghz", "length_s", "signal_bars", "heading", "radar_from", "light", "status", "reason", "confirmed_spot"];
+    var lines = [head.join(",")].concat(rows.map(function (a) {
+      return [a.t, a.dayLabel + " " + a.timeS, a.lat, a.lon, a.band, a.freq, a.len, a.bars, a.heading || "", a.arrow || "", a.night ? "dark" : "day", a.status, a.reason || "", a.confirmed ? "yes" : "no"]
+        .map(function (v) { v = v == null ? "" : String(v); return /[",]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(",");
+    }));
+    download(new Blob([lines.join("\n")], { type: "text/csv" }), "radar_alerts.csv");
+  }
+
+  // ---------- road names for the top zones (OpenStreetMap, cached in this browser) ----------
+  function nameZones() {
+    var cache = {};
+    try { cache = JSON.parse(localStorage.getItem("zoneNames") || "{}"); } catch (e) {}
+    var todo = zones.slice(0, 5).filter(function (z) { if (cache[z.key]) { zoneNames[z.key] = cache[z.key]; return false; } return true; });
     drawList(shown());
+    todo.forEach(function (z, i) {
+      setTimeout(function () {
+        fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&lat=" + z.lat.toFixed(5) + "&lon=" + z.lon.toFixed(5))
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            var ad = j.address || {}, road = ad.road || ad.pedestrian || ad.neighbourhood, area = ad.suburb || ad.neighbourhood || ad.city || ad.town;
+            if (!road) return;
+            zoneNames[z.key] = road + (area && area !== road ? ", " + area : "");
+            cache[z.key] = zoneNames[z.key];
+            try { localStorage.setItem("zoneNames", JSON.stringify(cache)); } catch (e) {}
+            drawList(shown());
+          }).catch(function () {});
+      }, i * 1200);                                         // OpenStreetMap asks for at most one lookup per second
+    });
+  }
+
+  // ---------- live badge ----------
+  var updated = null;
+  function drawLive() {
+    if (!updated) return;
+    var mins = Math.round((Date.now() - updated) / 60000), on = mins <= 20;
+    $("live").classList.toggle("on", on);
+    $("liveTxt").textContent = on ? "Live · " + (mins < 1 ? "just now" : mins + " min ago")
+      : "Updated " + (mins < 60 ? mins + " min" : mins < 1440 ? Math.round(mins / 60) + " h" : Math.round(mins / 1440) + " d") + " ago";
   }
 
   // ---------- controls ----------
-  function pressGroup(attr, value) {
-    document.querySelectorAll("[data-" + attr + "]").forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b.dataset[attr] === value));
-    });
+  function press(attr, value) { document.querySelectorAll("[data-" + attr + "]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset[attr] === value)); }); }
+  document.querySelectorAll("[data-band]").forEach(function (b) { b.onclick = function () { state.band = b.dataset.band; press("band", state.band); draw(true); }; });
+  document.querySelectorAll("[data-layer]").forEach(function (b) { b.onclick = function () {
+    state.layers[b.dataset.layer] = !state.layers[b.dataset.layer]; b.setAttribute("aria-pressed", String(state.layers[b.dataset.layer])); draw(false); }; });
+  document.querySelectorAll("[data-list]").forEach(function (b) { b.onclick = function () { state.list = b.dataset.list; press("list", state.list); drawList(shown()); }; });
+  $("day").onchange = function (e) { state.day = e.target.value; draw(true); };
+  $("light").onchange = function (e) { state.light = e.target.value; draw(true); };
+  $("showFalse").onchange = function (e) { state.showFalse = e.target.checked; draw(false); };
+  $("confirmedOnly").onchange = function (e) { state.confirmedOnly = e.target.checked; draw(true); };
+  $("replayBtn").onclick = function () { setView("map"); if (location.hash !== "#map") history.replaceState(null, "", "#map"); replayStart(); };
+  $("replayPlay").onclick = function () { replayPlay(!replayTimer); };
+  $("replayStop").onclick = replayStop;
+  $("showBtn").onclick = startShow;
+  $("lapseBtn").onclick = startLapse;
+  $("driveBtn").onclick = driveStart;
+  $("driveExit").onclick = driveStop;
+  $("driveTest").onclick = function () { chime(); setTimeout(function () { speak("Slow-down zone ahead, in a quarter mile. Ka band radar seen here before."); }, 450); };
+  $("showExit").onclick = stopShow;
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { stopShow(); replayStop(); driveStop(); } });
+  document.addEventListener("fullscreenchange", function () { if (!document.fullscreenElement) stopShow(); });
+  $("csvBtn").onclick = csv;
+  $("charts").addEventListener("click", function (e) { var b = e.target.closest("[data-save]"); if (b) savePng(b.dataset.save, b.dataset.title); });
+  function openAlert(id) {
+    var a = all.find(function (x) { return x.id === id; }); if (!a) return;
+    if (state.view !== "map") { location.hash = "#map"; setView("map"); }
+    setTimeout(function () { select(a, true); }, 80);
+    if (window.innerWidth <= 860) document.querySelector(".stage").scrollIntoView({ behavior: "smooth" });
   }
-  document.querySelectorAll("[data-band]").forEach(function (b) {
-    b.addEventListener("click", function () { state.band = b.dataset.band; pressGroup("band", state.band); draw(true); });
-  });
-  document.querySelectorAll("[data-view]").forEach(function (b) {
-    b.addEventListener("click", function () { state.view = b.dataset.view; pressGroup("view", state.view); draw(false); });
-  });
-  document.getElementById("day").addEventListener("change", function (e) { state.day = e.target.value; draw(true); });
-  document.getElementById("showFalse").addEventListener("change", function (e) { state.showFalse = e.target.checked; draw(false); });
-  document.getElementById("list").addEventListener("click", function (e) {
-    var b = e.target.closest(".item"); if (!b) return;
-    var a = all.find(function (x) { return x.id === +b.dataset.id; });
-    if (a) {
-      select(a, true);
-      if (window.innerWidth <= 760) document.querySelector(".mapwrap").scrollIntoView({ behavior: "smooth" });
+  $("list").addEventListener("click", function (e) {
+    var b = e.target.closest(".item");
+    if (b) return openAlert(+b.dataset.id);
+    var z = e.target.closest(".zone");
+    if (z) {
+      var zone = zones[+z.dataset.zone];
+      var best = zone.alerts.slice().sort(function (a, b) { return (b.bars || 0) - (a.bars || 0); })[0];
+      openAlert(best.id);
     }
   });
+  $("wall").addEventListener("click", function (e) { var b = e.target.closest(".shot"); if (b) openAlert(+b.dataset.id); });
+
+  // ---------- install as an app (Windows 11 / phone) ----------
+  var installEvt = null;
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); installEvt = e; $("installBtn").hidden = false; });
+  window.addEventListener("appinstalled", function () { $("installBtn").hidden = true; });
+  $("installBtn").onclick = function () { if (installEvt) { installEvt.prompt(); installEvt = null; $("installBtn").hidden = true; } };
+  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(function () {});
 
   // ---------- start ----------
   function start() {
     var data = window.RADAR_DATA;
-    if (!data) { document.getElementById("foot").textContent = "Could not load the alert data (data.js)."; return; }
+    if (!data) { $("foot").textContent = "Could not load the alert data (data.js)."; return; }
     all = prep(data.alerts || []);
+    tracks = data.tracks || [];
+    $("bPath").hidden = !tracks.length;
+    buildZones();
+    findSameRadar();
     var days = [];
-    all.forEach(function (a) { if (days.indexOf(a.dayKey) < 0) days.push(a.dayKey); });
-    var sel = document.getElementById("day");
-    days.forEach(function (k) {
+    all.forEach(function (a) { if (!a.isFalse && days.indexOf(a.dayKey) < 0) days.push(a.dayKey); });
+    days.reverse().forEach(function (k) {
       var a = all.find(function (x) { return x.dayKey === k; });
-      var o = document.createElement("option"); o.value = k; o.textContent = a.dayLabel; sel.appendChild(o);
+      var o = document.createElement("option"); o.value = k; o.textContent = a.dayLabel; $("day").appendChild(o);
     });
-    document.getElementById("bX").hidden = !all.some(function (a) { return a.band === "X"; });
-    var up = new Date(data.updated.replace(" ", "T") + "Z");
-    document.getElementById("foot").textContent = "Updated " + fmtDay.format(up) + ", " + fmtTime.format(up) +
-      ". Alerts are logged automatically by a Raspberry Pi reading the R7 screen with a camera.";
+    $("bX").hidden = !all.some(function (a) { return a.band === "X"; });
+    updated = new Date(data.updated.replace(" ", "T") + "Z");
+    drawLive(); setInterval(drawLive, 30000);
+    $("foot").textContent = "Data updated " + fmtDay.format(updated) + ", " + fmtTime.format(updated) + ". Logged automatically by a Raspberry Pi reading the R7 screen with a camera.";
+    setView(location.hash.slice(1) || "map");
     draw(true);
+    nameZones();
+    var h = document.createElement("script");                // the Pi's status (optional file)
+    h.src = "health.js?v=" + Date.now();
+    h.onload = function () { health = window.RADAR_HEALTH || null; if (state.view === "stats") drawPi(); };
+    document.body.appendChild(h);
   }
-  // load the data fresh every time so a new drive shows up without a stale copy
   var s = document.createElement("script");
-  s.src = "data.js?v=" + Date.now();
-  s.onload = start;
-  s.onerror = start;
+  s.src = "data.js?v=" + Date.now();                         // always fresh, so a new drive shows up right away
+  s.onload = start; s.onerror = start;
   document.body.appendChild(s);
 })();
 </script>
